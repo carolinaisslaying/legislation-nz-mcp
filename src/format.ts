@@ -1,12 +1,13 @@
 /**
- * Convert a legislation document (HTML) into clean, readable plain text.
+ * Convert legislation documents (HTML or XML) into clean, readable plain text.
  *
- * This is the "Option A" approach: return the whole document as a text blob.
- * Structured, per-section XML parsing is a planned enhancement (see README
- * roadmap) and would live alongside this in a future version.
+ * HTML conversion strips website chrome and returns a text blob.
+ * XML conversion uses the shared rendering logic in xml.ts so whole-doc and
+ * per-section extraction share the same output style.
  */
 
 import { parse } from "node-html-parser";
+import { parseLegislation, renderElementText } from "./xml.js";
 
 /** Elements whose content is noise for reading the text of the law. */
 const STRIP_TAGS = ["script", "style", "nav", "header", "footer", "head"];
@@ -54,41 +55,15 @@ export function normalizeWhitespace(text: string): string {
 
 /**
  * Convert the official legislation XML into readable plain text.
- *
- * The XML (unlike the `html` format, which is the full website page complete
- * with navigation) contains only the legislation content. We render provisions
- * with their section number and heading on one line, then the body, preserving
- * enough structure to read while staying a flat "Option A" text blob. Precise
- * per-section extraction from this same XML is a planned enhancement.
+ * Delegates to renderElementText (src/xml.ts) after dropping structural noise
+ * (cover block, TOC) so the whole-doc path shares rendering logic with
+ * per-section extraction.
  */
-// Tags that begin a new line. Deliberately excludes `heading` and `para`/`text`
-// so a provision's number, heading, and text flow onto one line
-// ("6 Interpretation ...") rather than being split across lines.
-const XML_BLOCK_TAGS = new Set([
-  "prov", "subprov", "label-para", "def-para", "item", "part", "subpart",
-  "schedule", "cross-heading", "crosshead", "front", "enactment",
-  "admin-office", "note", "history-note", "amending-provision", "leg-title",
-]);
-
-// Structural noise to remove entirely: the cover block (its title/date are
-// returned as metadata), the auto-generated contents/TOC, and editorial notes.
-const XML_DROP_TAGS = "cover, toc, contents, cover\\.reprint-note";
-
 export function xmlToText(xml: string): string {
-  // Strip the XML declaration / processing instructions before parsing.
-  const cleaned = xml.replace(/<\?xml[^>]*\?>/gi, "");
-  const root = parse(cleaned, { comment: false });
-
-  root.querySelectorAll(XML_DROP_TAGS).forEach((el) => el.remove());
-
-  root.querySelectorAll("*").forEach((el) => {
-    const tag = el.rawTagName?.toLowerCase() ?? "";
-    // A provision's label ("6") should sit inline before its heading ("6 Title").
-    if (tag === "label") el.insertAdjacentHTML("afterend", " ");
-    if (XML_BLOCK_TAGS.has(tag)) el.insertAdjacentHTML("beforebegin", "\n");
-  });
-
-  return normalizeWhitespace(root.textContent ?? "");
+  const root = parseLegislation(xml);
+  // Drop the cover (title/date returned as metadata) and auto-generated TOC.
+  root.querySelectorAll("cover, toc, contents, cover\\.reprint-note").forEach((el) => el.remove());
+  return renderElementText(root);
 }
 
 /** Optionally truncate very large documents to protect the token budget. */

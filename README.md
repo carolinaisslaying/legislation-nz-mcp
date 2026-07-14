@@ -15,10 +15,10 @@ Built with Node + TypeScript and the official MCP SDK, over stdio.
 | `search_legislation` | Search by title or full-text content, with filters (type, status, agency, sort, pagination). Returns works + their newest matching version id. |
 | `list_versions` | List all point-in-time versions of a work (by `work_id`). |
 | `get_version_details` | Metadata for one version, including available formats (html/pdf/xml) and their URLs. |
-| `get_legislation_text` | Read a document's text. Give a `version_id`, or a `work_id` to auto-read its newest version. Returns cleaned plain text (whole document). |
+| `list_sections` | List a document's structure: Parts, subparts, section numbers + headings, and schedules. Use this to find a section/schedule number before calling `get_legislation_text`. |
+| `get_legislation_text` | Read a document's text. Give a `version_id` or `work_id`. Without `section`/`schedule` params, returns the whole document. With `section:"22"` or `schedule:"1"`, returns just that provision with its Part/subpart context. |
 
-Typical flow: `search_legislation` → pick a `work_id`/`version_id` →
-`get_legislation_text`.
+Typical flow: `search_legislation` → `list_sections` → `get_legislation_text` with a `section` param.
 
 ## Setup
 
@@ -141,20 +141,11 @@ in the docs.
 These were intentionally left out of v0.1 to keep the first version simple.
 Notes here so they aren't forgotten.
 
-### 1. Structured, per-section text extraction (XML parsing) — _high value_
-`get_legislation_text` already fetches the official **XML** format and flattens
-it to a readable whole-document text blob ("Option A" — see `xmlToText` in
-`src/format.ts`). The next step ("Option B") is to parse that same XML into its
-provision tree (Part → subpart → section → subsection) so we can:
-- Add a `section` parameter to `get_legislation_text` that returns **just one
-  provision** (with its heading and parent Part for context) instead of the
-  whole act — far cheaper on tokens and better for precise citation.
-- Preserve document hierarchy in output rather than flattening it.
-
-This requires server-side manipulation the API does not do for us: fetch full
-XML → parse against the NZ legislation schema (`<prov>` / `<label>` /
-`<heading>` / `<subprov>` / `<label-para>` elements, observed live) → locate the
-requested node → return that subtree.
+### 1. ~~Structured, per-section text extraction~~ — _done in v0.2_
+`get_legislation_text` now accepts a `section` param (e.g. `"22"`, `"25A"`) to
+return a single provision with its Part/subpart context, and a `schedule` param
+for schedules. `list_sections` lists the full document structure. Implemented via
+`src/xml.ts` using `node-html-parser` against the official XML format.
 
 ### 2. PDF retrieval / handling
 `get_legislation_text` reads the XML format (falling back to HTML); it never

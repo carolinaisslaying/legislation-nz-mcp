@@ -34,6 +34,7 @@ import { searchLegislation, searchInputSchema } from "./tools/search.js";
 import { listVersions, versionsInputSchema } from "./tools/versions.js";
 import { getVersionDetails, versionDetailsInputSchema } from "./tools/versionDetails.js";
 import { getLegislationText, getTextInputSchema } from "./tools/getText.js";
+import { listSections, listSectionsInputSchema } from "./tools/listSections.js";
 
 const server = new McpServer({
   name: "legislation-nz-mcp",
@@ -89,9 +90,20 @@ server.tool(
 
 server.tool(
   "get_legislation_text",
-  "Retrieve the readable text of a piece of legislation. Provide a version_id, or a work_id to automatically read its newest version. Returns the whole document as cleaned plain text.",
+  "Retrieve the text of a piece of legislation. Provide a version_id or work_id. " +
+  "Without section/schedule params, returns the whole document as cleaned plain text. " +
+  "With a section param (e.g. \"22\" or \"25A\"), returns just that section with its Part/subpart context. " +
+  "With a schedule param (e.g. \"1\"), returns just that schedule. Use list_sections to discover numbers first.",
   getTextInputSchema,
   toolResult(getLegislationText),
+);
+
+server.tool(
+  "list_sections",
+  "List the structure of a legislation document: Parts, subparts, section numbers and headings, and schedules. " +
+  "Use this before get_legislation_text to find the right section or schedule number.",
+  listSectionsInputSchema,
+  toolResult(listSections),
 );
 
 async function main() {
