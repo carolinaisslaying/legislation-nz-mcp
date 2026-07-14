@@ -7,7 +7,7 @@
  */
 
 import { parse } from "node-html-parser";
-import { parseLegislation, renderElementText } from "./xml.js";
+import { parseLegislation, renderElementText, type ExcludeOption } from "./xml.js";
 
 /** Elements whose content is noise for reading the text of the law. */
 const STRIP_TAGS = ["script", "style", "nav", "header", "footer", "head"];
@@ -55,15 +55,13 @@ export function normalizeWhitespace(text: string): string {
 
 /**
  * Convert the official legislation XML into readable plain text.
- * Delegates to renderElementText (src/xml.ts) after dropping structural noise
- * (cover block, TOC) so the whole-doc path shares rendering logic with
- * per-section extraction.
+ * Delegates to renderElementText (src/xml.ts) so whole-doc and per-section
+ * paths share the same rendering logic. Pass `exclude` to strip specific
+ * content types; toc/contents are always removed regardless.
  */
-export function xmlToText(xml: string): string {
+export function xmlToText(xml: string, exclude: ExcludeOption[] = []): string {
   const root = parseLegislation(xml);
-  // Drop the cover (title/date returned as metadata) and auto-generated TOC.
-  root.querySelectorAll("cover, toc, contents, cover\\.reprint-note").forEach((el) => el.remove());
-  return renderElementText(root);
+  return renderElementText(root, exclude);
 }
 
 /** Optionally truncate very large documents to protect the token budget. */

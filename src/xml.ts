@@ -25,8 +25,25 @@ const XML_BLOCK_TAGS = new Set([
   "schedule.provisions", "schedule.misc",
 ]);
 
-// Elements to strip entirely before rendering (noise, not legislation text).
-const XML_DROP_SELECTOR = "cover, toc, contents, cover\\.reprint-note, cf, notes";
+/**
+ * Content types that can be excluded from rendered output.
+ * Pass an array of these to renderElementText / findSection / findSchedule /
+ * xmlToText. By default (empty array) all content is kept.
+ */
+export type ExcludeOption =
+  | "cover"
+  | "history_notes"
+  | "comparative_references"
+  | "editorial_notes"
+  | "defined_term_links";
+
+const EXCLUDE_SELECTORS: Record<ExcludeOption, string> = {
+  cover: "cover, cover\\.reprint-note",
+  history_notes: "history-note",
+  comparative_references: "cf",
+  editorial_notes: "editorial-note, amends-note",
+  defined_term_links: "ird\\.aids",
+};
 
 export interface SectionResult {
   number: string;
@@ -75,15 +92,22 @@ export function parseLegislation(xml: string): HTMLElement {
 /**
  * Render an element's text content with basic structure: block tags get a
  * leading newline, labels get a trailing space (so "6 Heading" stays on one
- * line), and noise elements are dropped before rendering.
+ * line). toc/contents are always dropped (list_sections covers them better).
+ * Pass `exclude` to additionally strip specific content types.
  */
-export function renderElementText(el: HTMLElement): string {
+export function renderElementText(el: HTMLElement, exclude: ExcludeOption[] = []): string {
   // Clone by re-parsing the outer HTML so we don't mutate the shared tree.
   const copy = parse(el.outerHTML, { comment: false }).firstChild as HTMLElement;
-  copy.querySelectorAll(XML_DROP_SELECTOR).forEach((n) => n.remove());
+  // Always drop auto-generated navigation — list_sections provides this better.
+  copy.querySelectorAll("toc, contents").forEach((n) => n.remove());
+  for (const opt of exclude) {
+    copy.querySelectorAll(EXCLUDE_SELECTORS[opt]).forEach((n) => n.remove());
+  }
   copy.querySelectorAll("*").forEach((n) => {
     const tag = n.rawTagName?.toLowerCase() ?? "";
-    if (tag === "label") n.insertAdjacentHTML("afterend", " ");
+    // label: trailing space so "6 Heading" renders on one line.
+    // term: trailing space so ITA defined-term lists don't mash together.
+    if (tag === "label" || tag === "term") n.insertAdjacentHTML("afterend", " ");
     if (XML_BLOCK_TAGS.has(tag)) n.insertAdjacentHTML("beforebegin", "\n");
   });
   return normalizeWhitespace(copy.textContent ?? "");
@@ -138,7 +162,7 @@ function ancestorContext(prov: HTMLElement): { part?: string; subpart?: string }
  * Scoped to <body> so schedule/amendment provisions with duplicate numbers
  * are not matched.
  */
-export function findSection(root: HTMLElement, id: string): SectionResult | null {
+export function findSection(root: HTMLElement, id: string, exclude: ExcludeOption[] = []): SectionResult | null {
   const body = root.querySelector("body");
   if (!body) return null;
   const normalised = id.trim();
@@ -151,7 +175,7 @@ export function findSection(root: HTMLElement, id: string): SectionResult | null
     heading: directHeading(prov),
     part,
     subpart,
-    text: renderElementText(prov),
+    text: renderElementText(prov, exclude),
   };
 }
 
@@ -159,7 +183,7 @@ export function findSection(root: HTMLElement, id: string): SectionResult | null
  * Find a schedule by number.
  * Schedules live under <schedule.group>, separate from <body>.
  */
-export function findSchedule(root: HTMLElement, id: string): ScheduleResult | null {
+export function findSchedule(root: HTMLElement, id: string, exclude: ExcludeOption[] = []): ScheduleResult | null {
   const normalised = id.trim();
   const schedules = root.querySelectorAll("schedule");
   const sched = schedules.find((s) => directLabel(s) === normalised);
@@ -167,7 +191,7 @@ export function findSchedule(root: HTMLElement, id: string): ScheduleResult | nu
   return {
     number: normalised,
     heading: directHeading(sched),
-    text: renderElementText(sched),
+    text: renderElementText(sched, exclude),
   };
 }
 

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getJson, getDocument, LegislationApiError } from "../client.js";
 import { htmlToText, xmlToText, truncate } from "../format.js";
-import { parseLegislation, findSection, findSchedule } from "../xml.js";
+import { parseLegislation, findSection, findSchedule, type ExcludeOption } from "../xml.js";
 import type { Version } from "../types.js";
 import { dateFromVersionId } from "../util.js";
 import { newestVersionId } from "./resolve.js";
@@ -45,6 +45,29 @@ export const getTextInputSchema = {
     .min(1000)
     .optional()
     .describe(`Truncate whole-document output to this many characters (default ${DEFAULT_MAX_CHARS}). Not applied when fetching a single section or schedule.`),
+  exclude: z
+    .array(
+      z.enum(["cover", "history_notes", "comparative_references", "editorial_notes", "defined_term_links"]),
+    )
+    .optional()
+    .describe(
+      "Content types to exclude from the rendered text. By default everything is included. " +
+      "Options:\n" +
+      "- \"cover\": Front-page block (title, assent date, PCO reprint note). " +
+        "Already returned as structured metadata fields — exclude to avoid duplication in the text body.\n" +
+      "- \"history_notes\": Amendment-history entries at the end of each provision, " +
+        "recording when it was inserted, amended, or repealed and by which Act. " +
+        "Useful for understanding how law evolved; omit if you only need current text.\n" +
+      "- \"comparative_references\": Terse cross-references to equivalent provisions " +
+        "in predecessor or overseas legislation (e.g. '1952 No 43 s 4(1)'). " +
+        "Lineage information only — not part of the current operative law.\n" +
+      "- \"editorial_notes\": PCO-authored notes added during consolidation, " +
+        "such as secondary legislation compliance tables. " +
+        "These are explicitly flagged in the source as 'not part of the Act'.\n" +
+      "- \"defined_term_links\": Inland Revenue (Income Tax Act) navigation lists " +
+        "enumerating which defined terms appear in a provision. " +
+        "Website navigation aids only — not legislative text.",
+    ),
 };
 
 const schema = z.object(getTextInputSchema);
@@ -61,6 +84,8 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
   if (args.format && (args.section || args.schedule)) {
     throw new LegislationApiError("format cannot be combined with section or schedule.");
   }
+
+  const exclude = (args.exclude ?? []) as ExcludeOption[];
 
   let versionId = args.version_id;
   if (!versionId) {
@@ -107,7 +132,7 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
     const root = parseLegislation(xml);
 
     if (args.section) {
-      const result = findSection(root, args.section);
+      const result = findSection(root, args.section, exclude);
       if (!result) {
         throw new LegislationApiError(
           `Section ${args.section} not found in "${version.title ?? versionId}". Use list_sections to see available section numbers.`,
@@ -115,7 +140,7 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
       }
       return { ...meta, source_url: xmlUrl, source_format: "xml", ...result };
     } else {
-      const result = findSchedule(root, args.schedule!);
+      const result = findSchedule(root, args.schedule!, exclude);
       if (!result) {
         throw new LegislationApiError(
           `Schedule ${args.schedule} not found in "${version.title ?? versionId}". Use list_sections to see available schedules.`,
@@ -136,7 +161,7 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
 
   const source = xmlUrl ? "xml" : "html";
   const raw = await getDocument(url);
-  const text = source === "xml" ? xmlToText(raw) : htmlToText(raw);
+  const text = source === "xml" ? xmlToText(raw, exclude) : htmlToText(raw);
   const { text: out, truncated } = truncate(text, args.max_chars ?? DEFAULT_MAX_CHARS);
 
   return { ...meta, source_url: url, source_format: source, truncated, text: out };
