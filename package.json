@@ -1,0 +1,29 @@
+{
+  "name": "legislation-nz-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for the New Zealand legislation.govt.nz developer API",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "legislation-nz-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^17.4.2",
+    "node-html-parser": "^6.1.13",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
