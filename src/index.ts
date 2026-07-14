@@ -93,7 +93,8 @@ server.tool(
   "Retrieve the text of a piece of legislation. Provide a version_id or work_id. " +
   "Without section/schedule params, returns the whole document as cleaned plain text. " +
   "With a section param (e.g. \"22\" or \"25A\"), returns just that section with its Part/subpart context. " +
-  "With a schedule param (e.g. \"1\"), returns just that schedule. Use list_sections to discover numbers first.",
+  "With a schedule param (e.g. \"1\"), returns just that schedule. Use list_sections to discover numbers first. " +
+  "With format:\"pdf\", returns the official PDF download URL instead of text.",
   getTextInputSchema,
   toolResult(getLegislationText),
 );

@@ -31,6 +31,14 @@ export const getTextInputSchema = {
       "Return only this schedule number (e.g. \"1\") instead of the whole document. " +
       "Cannot be combined with section.",
     ),
+  format: z
+    .enum(["pdf"])
+    .optional()
+    .describe(
+      "Set to \"pdf\" to retrieve the official PDF download URL instead of the document text. " +
+      "Returns the URL and metadata without downloading the file. " +
+      "Cannot be combined with section or schedule.",
+    ),
   max_chars: z
     .number()
     .int()
@@ -49,6 +57,9 @@ function formatUrl(v: Version, type: string): string | undefined {
 export async function getLegislationText(args: z.infer<typeof schema>) {
   if (args.section && args.schedule) {
     throw new LegislationApiError("Provide section or schedule, not both.");
+  }
+  if (args.format && (args.section || args.schedule)) {
+    throw new LegislationApiError("format cannot be combined with section or schedule.");
   }
 
   let versionId = args.version_id;
@@ -71,6 +82,18 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
     title: version.title,
     version_date: dateFromVersionId(versionId),
   };
+
+  // --- PDF URL mode ---
+  if (args.format === "pdf") {
+    const pdfUrl = formatUrl(version, "pdf") ?? formatUrl(version, "pdf_original_scan");
+    if (!pdfUrl) {
+      const available = (version.formats ?? []).map((f) => f.type).join(", ") || "none";
+      throw new LegislationApiError(
+        `No PDF format available for version "${versionId}" (available: ${available}).`,
+      );
+    }
+    return { ...meta, pdf_url: pdfUrl };
+  }
 
   // --- Per-section or per-schedule mode ---
   if (args.section ?? args.schedule) {

@@ -147,11 +147,11 @@ return a single provision with its Part/subpart context, and a `schedule` param
 for schedules. `list_sections` lists the full document structure. Implemented via
 `src/xml.ts` using `node-html-parser` against the official XML format.
 
-### 2. PDF retrieval / handling
-`get_legislation_text` reads the XML format (falling back to HTML); it never
-uses the PDF. A user may still want the official PDF — e.g. for printing or for
-documents where layout matters. Consider a tool/param to surface the PDF format
-URL, or to extract text from the PDF.
+### 2. ~~PDF retrieval / handling~~ — _done in v0.3_
+`get_legislation_text` now accepts `format: "pdf"` to return the official PDF
+download URL and metadata without fetching content (e.g. `get_legislation_text({work_id: "...", format: "pdf"})`).
+PDF text extraction was deliberately not implemented — the XML format is strictly
+superior for machine-readable use (clean, structured, no layout noise).
 
 ### 3. "Notify me of changes" / feeds
 The API has **legacy RSS endpoints** (`/api/rss/search/` and
@@ -165,11 +165,11 @@ diffing versions** over parsing RSS, rather than adding the RSS endpoints.
 Add an in-memory (or on-disk) cache for document fetches and version lists to
 reduce calls against the daily quota for repeated reads of the same work.
 
-### 5. Response-shape hardening
-The `/v0/` JSON responses are typed loosely (`src/types.ts`) because there is no
-published machine-readable schema. Once field names are confirmed against live
-responses, tighten the types and the result-summarizing code.
-```
+### 5. ~~Response-shape hardening~~ — _done in v0.3_
+`src/types.ts` now uses concrete types with no index signatures, based on field
+names and types confirmed against live responses. Type-specific optional fields
+(act_type, bill_status, instrument_classification, etc.) are kept optional since
+the same endpoints serve multiple legislation categories.
 
 ## Project layout
 
