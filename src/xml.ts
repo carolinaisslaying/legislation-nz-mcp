@@ -35,7 +35,8 @@ export type ExcludeOption =
   | "history_notes"
   | "comparative_references"
   | "editorial_notes"
-  | "defined_term_links";
+  | "defined_term_links"
+  | "end_matter";
 
 const EXCLUDE_SELECTORS: Record<ExcludeOption, string> = {
   cover: "cover, cover\\.reprint-note",
@@ -43,6 +44,7 @@ const EXCLUDE_SELECTORS: Record<ExcludeOption, string> = {
   comparative_references: "cf",
   editorial_notes: "editorial-note, amends-note",
   defined_term_links: "ird\\.aids",
+  end_matter: "end\\.reprint-note, leg-history",
 };
 
 export interface SectionResult {

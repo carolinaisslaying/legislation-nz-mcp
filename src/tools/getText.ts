@@ -47,7 +47,7 @@ export const getTextInputSchema = {
     .describe(`Truncate whole-document output to this many characters (default ${DEFAULT_MAX_CHARS}). Not applied when fetching a single section or schedule.`),
   exclude: z
     .array(
-      z.enum(["cover", "history_notes", "comparative_references", "editorial_notes", "defined_term_links"]),
+      z.enum(["cover", "history_notes", "comparative_references", "editorial_notes", "defined_term_links", "end_matter"]),
     )
     .optional()
     .describe(
@@ -61,12 +61,19 @@ export const getTextInputSchema = {
       "- \"comparative_references\": Terse cross-references to equivalent provisions " +
         "in predecessor or overseas legislation (e.g. '1952 No 43 s 4(1)'). " +
         "Lineage information only — not part of the current operative law.\n" +
-      "- \"editorial_notes\": PCO-authored notes added during consolidation, " +
-        "such as secondary legislation compliance tables. " +
-        "These are explicitly flagged in the source as 'not part of the Act'.\n" +
+      "- \"editorial_notes\": Two kinds of PCO annotation: (1) editorial-note elements — " +
+        "free-text PCO notes such as secondary legislation compliance tables, " +
+        "explicitly flagged in the source as 'not part of the Act'; and " +
+        "(2) amends-note elements — machine-readable scheduling data for amendments not yet in force, " +
+        "recording the trigger date/event, affected provisions, and replacement text. " +
+        "Exclude if you only need the current operative text.\n" +
       "- \"defined_term_links\": Inland Revenue (Income Tax Act) navigation lists " +
         "enumerating which defined terms appear in a provision. " +
-        "Website navigation aids only — not legislative text.",
+        "Website navigation aids only — not legislative text.\n" +
+      "- \"end_matter\": Document-tail reprint metadata — the reprint index (table of reprint dates) " +
+        "and reprint notes (free-text describing what each reprint changed), plus the leg-history " +
+        "element (structured list of reprint issuance dates). " +
+        "Appears once at the end of the whole document; not present when fetching a single section.",
     ),
 };
 
