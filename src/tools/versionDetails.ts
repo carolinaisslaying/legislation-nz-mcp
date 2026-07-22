@@ -20,7 +20,18 @@ export async function getVersionDetails(args: z.infer<typeof schema>) {
     work_id: v.work_id,
     title: v.title,
     version_date: dateFromVersionId(v.version_id),
+    legislation_type: v.legislation_type,
     legislation_status: v.legislation_status,
+    administering_agencies: v.administering_agencies,
+    act_type: v.act_type,
+    act_status: v.act_status,
+    act_classification: v.act_classification,
+    bill_type: v.bill_type,
+    bill_status: v.bill_status,
+    instrument_type_group: v.instrument_type_group,
+    instrument_status: v.instrument_status,
+    instrument_classification: v.instrument_classification,
+    is_latest_version: v.is_latest_version,
     formats: (v.formats ?? []).map((f) => ({ type: f.type, url: f.url })),
   };
 }

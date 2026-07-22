@@ -51,6 +51,14 @@ function summarizeWork(w: Work) {
     administering_agencies: w.administering_agencies,
     latest_matching_version_id: v?.version_id,
     latest_version_date: dateFromVersionId(v?.version_id),
+    act_type: w.act_type,
+    act_status: w.act_status,
+    act_classification: w.act_classification,
+    bill_type: w.bill_type,
+    bill_status: w.bill_status,
+    instrument_type_group: w.instrument_type_group,
+    instrument_status: w.instrument_status,
+    instrument_classification: w.instrument_classification,
   };
 }
 

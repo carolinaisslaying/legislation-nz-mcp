@@ -29,6 +29,7 @@ export async function listVersions(args: z.infer<typeof schema>) {
     versions: versions.map((v) => ({
       version_id: v.version_id,
       version_date: dateFromVersionId(v.version_id),
+      is_latest_version: v.is_latest_version,
       legislation_status: v.legislation_status,
       formats: (v.formats ?? []).map((f) => f.type).filter(Boolean),
     })),
