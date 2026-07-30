@@ -19,6 +19,22 @@ export const searchInputSchema = {
     .enum(["in_force", "not_in_force", "no_value"])
     .optional()
     .describe("Restrict by whether the legislation is currently in force."),
+  act_type: z
+    .enum(["public", "private", "imperial", "local", "provincial"])
+    .optional()
+    .describe("Restrict acts to a subtype (e.g. public vs local/private)."),
+  act_classification: z
+    .enum(["principal", "amendment"])
+    .optional()
+    .describe("Restrict acts to principal (foundational) or amendment acts."),
+  act_status: z
+    .enum(["in_force", "not_in_force", "repealed"])
+    .optional()
+    .describe("Restrict acts by their current legislative standing."),
+  publisher: z
+    .enum(["Agency", "Parliamentary Counsel Office"])
+    .optional()
+    .describe("Restrict by the publishing body."),
   administering_agencies: z
     .string()
     .optional()
@@ -68,6 +84,10 @@ export async function searchLegislation(args: z.infer<typeof schema>) {
     search_field: args.search_field,
     legislation_type: args.legislation_type,
     legislation_status: args.legislation_status,
+    act_type: args.act_type,
+    act_classification: args.act_classification,
+    act_status: args.act_status,
+    publisher: args.publisher,
     administering_agencies: args.administering_agencies,
     sort_by: args.sort_by,
     page: args.page,
