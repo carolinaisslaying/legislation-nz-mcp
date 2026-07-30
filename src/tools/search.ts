@@ -35,6 +35,37 @@ export const searchInputSchema = {
     .enum(["Agency", "Parliamentary Counsel Office"])
     .optional()
     .describe("Restrict by the publishing body."),
+  bill_type: z
+    .enum(["government", "local", "member", "private"])
+    .optional()
+    .describe("Restrict bills to a type."),
+  bill_status: z
+    .enum(["current", "enacted", "terminated"])
+    .optional()
+    .describe("Restrict bills by their current status."),
+  instrument_type_group: z
+    .enum([
+      "regulations",
+      "order",
+      "rules",
+      "code",
+      "bylaws",
+      "determination",
+      "exemption",
+      "notice",
+      "instrument",
+      "other_type",
+    ])
+    .optional()
+    .describe("Restrict secondary legislation to an instrument type group."),
+  instrument_status: z
+    .enum(["expired", "in_force", "not_yet_in_force", "revoked", "superseded"])
+    .optional()
+    .describe("Restrict secondary legislation by its current status."),
+  instrument_classification: z
+    .enum(["principal", "amendment"])
+    .optional()
+    .describe("Restrict secondary legislation to principal or amendment instruments."),
   administering_agencies: z
     .string()
     .optional()
@@ -88,6 +119,11 @@ export async function searchLegislation(args: z.infer<typeof schema>) {
     act_classification: args.act_classification,
     act_status: args.act_status,
     publisher: args.publisher,
+    bill_type: args.bill_type,
+    bill_status: args.bill_status,
+    instrument_type_group: args.instrument_type_group,
+    instrument_status: args.instrument_status,
+    instrument_classification: args.instrument_classification,
     administering_agencies: args.administering_agencies,
     sort_by: args.sort_by,
     page: args.page,
