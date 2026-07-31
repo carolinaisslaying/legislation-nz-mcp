@@ -1,28 +1,31 @@
 # legislation-nz-mcp
 
-A local [Model Context Protocol](https://modelcontextprotocol.io) server that
-exposes the **New Zealand [legislation.govt.nz developer API](https://www.legislation.govt.nz/learn-more/legislation-data/developer-api/)**
-as tools an LLM (e.g. Claude) can call — search legislation, browse
-point-in-time versions, and read the text of acts, bills, and secondary
-legislation.
+A [Model Context Protocol](https://modelcontextprotocol.io) server for the
+**New Zealand [legislation.govt.nz developer API](https://www.legislation.govt.nz/learn-more/legislation-data/developer-api/)**.
+It exposes the API as tools an MCP client (such as Claude) can call: search
+legislation, browse point-in-time versions, and read the text of acts, bills,
+and secondary legislation.
 
-Built with Node + TypeScript and the official MCP SDK, over stdio.
+Written in TypeScript on the official MCP SDK. It runs over stdio for local
+clients (Claude Desktop, Claude Code) or over streamable HTTP as a standalone
+localhost service.
 
 ## Tools
 
-| Tool | What it does |
+| Tool | Description |
 | --- | --- |
-| `search_legislation` | Search by title or full-text content, with filters (type, status, agency, sort, pagination). Returns works + their newest matching version id. |
+| `search_legislation` | Search by title or full-text content, with filters (type, status, classification, agency, publisher) plus sorting and pagination. Returns matching works and their newest matching version id. |
 | `list_versions` | List all point-in-time versions of a work (by `work_id`). |
 | `get_version_details` | Metadata for one version, including available formats (html/pdf/xml) and their URLs. |
-| `list_sections` | List a document's structure: Parts, subparts, section numbers + headings, and schedules. Use this to find a section/schedule number before calling `get_legislation_text`. |
-| `get_legislation_text` | Read a document's text. Give a `version_id` or `work_id`. Without `section`/`schedule` params, returns the whole document. With `section:"22"` or `schedule:"1"`, returns just that provision with its Part/subpart context. |
+| `list_sections` | List a document's structure: Parts, subparts, section numbers and headings, and schedules. Use it to find a section or schedule number before calling `get_legislation_text`. |
+| `get_legislation_text` | Read a document's text. Takes a `version_id` or `work_id`. Without `section`/`schedule`, returns the whole document; with `section:"22"` or `schedule:"1"`, returns just that provision with its Part/subpart context. |
 
-Typical flow: `search_legislation` → `list_sections` → `get_legislation_text` with a `section` param.
+A typical flow is `search_legislation` → `list_sections` → `get_legislation_text`
+with a `section` argument.
 
 ## Setup
 
-Requires Node.js 18+ (developed on Node 26) and an API key. Request a key on the
+Requires Node.js 18 or later and an API key. Request a key on the
 [developer API page](https://www.legislation.govt.nz/learn-more/legislation-data/developer-api/).
 
 ```bash
@@ -30,19 +33,19 @@ npm install
 npm run build
 ```
 
-Provide your API key. **Recommended:** create a `.env` file in the project root
-— the server loads it automatically at startup, so the key stays out of your
-shell environment and out of the MCP client config:
+Provide the API key via a `.env` file in the project root (recommended) — the
+server loads it automatically at startup, so the key stays out of your shell
+environment and out of the MCP client config:
 
 ```bash
 cp .env.example .env
 # then edit .env and set LEGISLATION_NZ_API_KEY=...
 ```
 
-The `.env` file is gitignored. Precedence: a `LEGISLATION_NZ_API_KEY` already
-set in the environment (e.g. via an MCP client `env` block, below) wins over the
-`.env` file. So you can use whichever approach suits you — `.env` file, an `env`
-block in the client config, or a plain shell `export`.
+`.env` is gitignored. A `LEGISLATION_NZ_API_KEY` already set in the environment
+(for example via an MCP client `env` block) takes precedence over the `.env`
+file, so you can use whichever approach suits your setup — a `.env` file, an
+`env` block in the client config, or a shell `export`.
 
 ### Use with Claude Desktop
 
@@ -70,120 +73,96 @@ claude mcp add legislation-nz \
   -- node /absolute/path/to/legislation-nz-mcp/dist/index.js
 ```
 
+### Run over HTTP
+
+For remote use, the server can run as its own localhost HTTP service (for
+example behind a reverse proxy or gateway that handles authentication):
+
+```bash
+npm run start:http
+```
+
+It binds to `127.0.0.1:8091` by default; override with `LEGISLATION_HTTP_HOST`
+and `LEGISLATION_HTTP_PORT`. The HTTP entry point has no authentication of its
+own — it is designed to sit behind a trusted front end and must not be exposed
+on a public interface.
+
 ## API notes
 
 - **Base URL:** `https://api.legislation.govt.nz`
 - **Auth:** `X-Api-Key` header (handled by the client).
-- **Rate limits:** 10,000 requests/day per key; 2,000 requests / 5 min per IP.
-  The client retries transient throttling (429/503) with backoff.
-- The API returns document **metadata**; the actual text lives behind the
+- **Rate limits:** 10,000 requests/day per key; 2,000 requests per 5 minutes per
+  IP. The client retries transient throttling (429/503) with backoff.
+- The API returns document **metadata**; the text itself lives behind the
   `formats[].url` links, which `get_legislation_text` fetches and cleans.
 
-## Documentation discrepancies (feedback for the API provider)
+### Observed API behaviour
 
-While building against the live API (`/v0/` endpoints) we found several places
-where the **observed responses differ from what the documentation at
-`https://api.legislation.govt.nz/docs/` describes or implies**. Each item below
-caused a real bug until the client was adjusted. These may be worth correcting
-in the docs.
+The following notes record places where the live `/v0/` API behaves differently
+from what the published documentation implies. Each one affected the client
+implementation and may be useful to others building against the same API.
+Behaviour was verified against live responses (Privacy Act 2020,
+`work_id=act_public_2020_31`); confirm against the canonical documentation
+before relying on any point.
 
-> Caveat: our reading of the docs was via an automated fetch, and the
-> `learn-more/legislation-data/developer-api/` page returns HTTP 403 to
-> automated requests so we could not read it. Verify each point against the
-> canonical documentation before acting on it. The *observed API behaviour*
-> below is confirmed against live responses (Privacy Act 2020,
-> `work_id=act_public_2020_31`, July 2026).
+1. **List responses use a `results` envelope, not a bare array.** Search and
+   version listings return an object —
+   `{ "results": [ ... ], "total": N, "page": N, "per_page": N }` — for both
+   `GET /v0/works/` and `GET /v0/works/{work_id}/versions/`. Code expecting a
+   top-level array (or a `works`/`versions` key) receives zero results.
 
-1. **List responses are wrapped in a `results` envelope, not a bare array.**
-   The docs describe search/versions responses as a "JSON array of works /
-   versions". The API actually returns an object:
-   `{ "results": [ ... ], "total": N, "page": N, "per_page": N }`.
-   This applies to both `GET /v0/works/` and `GET /v0/works/{work_id}/versions/`.
-   Code expecting a top-level array (or a `works`/`versions` key) silently gets
-   zero results.
+2. **`title` is on the version, not the work.** In `GET /v0/works/` results, a
+   work has no top-level `title`; the human-readable title appears only in
+   `latest_matching_version.title`.
 
-2. **`title` is not on the work object — only on the version.**
-   In `GET /v0/works/` results, each work has **no top-level `title`**; the
-   human-readable title appears only inside `latest_matching_version.title`.
-   The docs list `title` among the standard top-level response fields, which
-   implies it sits on the work.
+3. **Versions carry no discrete date field.** The effective date is encoded in
+   the trailing segment of `version_id`
+   (e.g. `act_public_2020_31_en_2026-05-01` → `2026-05-01`) and must be parsed
+   from the id.
 
-3. **There is no `version_date` (or similar) date field on versions.**
-   Version objects expose no discrete effective-date field. The date is only
-   available encoded in the trailing segment of `version_id`
-   (e.g. `act_public_2020_31_en_2026-05-01` → `2026-05-01`). A first-class date
-   field, or explicit documentation that the date must be parsed from the id,
-   would help.
+4. **`administering_agencies` is a string filter but an array in responses.**
+   As a request filter it is a single agency name; in responses the field is a
+   JSON array (e.g. `["Ministry of Justice"]`).
 
-4. **`administering_agencies` is an array of strings in responses.**
-   The docs describe `administering_agencies` as a string (an agency name),
-   which is true for the *request* filter, but in *responses* the field is a
-   JSON array (e.g. `["Ministry of Justice"]`). The request/response type
-   difference is undocumented.
+5. **The `html` format URL returns the full website page.** A version's
+   `formats[]` lists `html`, `pdf`, and `xml`. The `html` URL serves the
+   complete legislation.govt.nz web page (navigation, menus, headers/footers),
+   not the content alone. The `xml` format is the clean, machine-readable
+   content — `get_legislation_text` uses it by default.
 
-5. **The `html` format URL returns the full website page, not a content-only
-   document.** For a version, `formats[]` lists `html`, `pdf`, and `xml`. The
-   `html` URL (e.g. `.../en/latest/`) serves the complete legislation.govt.nz
-   web page — site navigation, bilingual menus, headers/footers — rather than
-   just the legislation content. Consumers wanting the text must use the `xml`
-   format (clean, content-only) or scrape the page. Documenting that `html` is
-   the website rendering and `xml` is the machine-readable content would set
-   expectations. (This tool now defaults to `xml` for `get_legislation_text`.)
+6. **Identifiers are not zero-padded.** Observed ids are `act_public_2020_31`,
+   not `act_public_2020_0031`. Version ids follow
+   `work_id + "_" + language + "_" + ISO-date`
+   (e.g. `act_public_2020_31_en_2026-05-01`).
 
-6. **Minor: `work_id` / `version_id` formats.** Observed identifiers are not
-   zero-padded (`act_public_2020_31`, not `act_public_2020_0031`). Version ids
-   follow `work_id + "_" + language + "_" + ISO-date`
-   (`act_public_2020_31_en_2026-05-01`). A precise, documented grammar for these
-   identifiers would reduce guesswork.
+## Future work
 
-## Roadmap — deferred features
-
-These were intentionally left out of v0.1 to keep the first version simple.
-Notes here so they aren't forgotten.
-
-### 1. ~~Structured, per-section text extraction~~ — _done in v0.2_
-`get_legislation_text` now accepts a `section` param (e.g. `"22"`, `"25A"`) to
-return a single provision with its Part/subpart context, and a `schedule` param
-for schedules. `list_sections` lists the full document structure. Implemented via
-`src/xml.ts` using `node-html-parser` against the official XML format.
-
-### 2. ~~PDF retrieval / handling~~ — _done in v0.3_
-`get_legislation_text` now accepts `format: "pdf"` to return the official PDF
-download URL and metadata without fetching content (e.g. `get_legislation_text({work_id: "...", format: "pdf"})`).
-PDF text extraction was deliberately not implemented — the XML format is strictly
-superior for machine-readable use (clean, structured, no layout noise).
-
-### 3. "Notify me of changes" / feeds
-The API has **legacy RSS endpoints** (`/api/rss/search/` and
-`/api/rss/works/{work_id}/versions/`) that mirror the `/v0/` JSON endpoints but
-return RSS/Atom feeds for feed-reader subscriptions. We deliberately skipped
-these — the JSON `/v0/` endpoints are a strict superset for on-demand querying.
-If a change-monitoring feature is ever wanted, prefer **polling `/v0/` and
-diffing versions** over parsing RSS, rather than adding the RSS endpoints.
-
-### 4. Caching layer
-Add an in-memory (or on-disk) cache for document fetches and version lists to
-reduce calls against the daily quota for repeated reads of the same work.
-
-### 5. ~~Response-shape hardening~~ — _done in v0.3_
-`src/types.ts` now uses concrete types with no index signatures, based on field
-names and types confirmed against live responses. Type-specific optional fields
-(act_type, bill_status, instrument_classification, etc.) are kept optional since
-the same endpoints serve multiple legislation categories.
+- **Caching.** An in-memory or on-disk cache for document fetches and version
+  lists would reduce calls against the daily quota for repeated reads of the
+  same work.
+- **Change monitoring.** A "notify me of changes" feature could poll the `/v0/`
+  endpoints and diff versions. (The API also offers legacy RSS endpoints, but
+  the JSON endpoints are a superset and are preferred for on-demand querying.)
 
 ## Project layout
 
 ```
 src/
-├─ index.ts              # MCP server bootstrap (stdio) + tool registration
-├─ client.ts             # HTTP client: auth, retries, rate-limit handling
-├─ types.ts              # loose response types
-├─ format.ts             # HTML → clean text (Option A)
+├─ index.ts             # stdio entry point (Claude Desktop / Claude Code)
+├─ http.ts              # streamable HTTP entry point (localhost service)
+├─ server.ts            # transport-independent server factory; registers all tools
+├─ client.ts            # HTTP client: auth, retries, rate-limit handling
+├─ types.ts             # API response types (confirmed against live responses)
+├─ util.ts              # response-envelope and version_id helpers
+├─ format.ts            # HTML → plain text
+├─ xml.ts               # XML parsing and document-structure extraction
 └─ tools/
-   ├─ search.ts          # search_legislation
-   ├─ versions.ts        # list_versions
-   ├─ versionDetails.ts  # get_version_details
-   └─ getText.ts         # get_legislation_text
+   ├─ search.ts         # search_legislation
+   ├─ versions.ts       # list_versions
+   ├─ versionDetails.ts # get_version_details
+   ├─ listSections.ts   # list_sections
+   ├─ getText.ts        # get_legislation_text
+   └─ resolve.ts        # work_id → newest version_id helper
 ```
 
 ## License
