@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getJson } from "../client.js";
 import type { Version } from "../types.js";
-import { dateFromVersionId } from "../util.js";
+import { dateFromVersionId, versionUrl, workUrl, isEphemeral } from "../util.js";
 
 export const versionDetailsInputSchema = {
   version_id: z
@@ -19,6 +19,9 @@ export async function getVersionDetails(args: z.infer<typeof schema>) {
     version_id: v.version_id,
     work_id: v.work_id,
     title: v.title,
+    url: versionUrl(v.version_id),
+    work_url: workUrl(v.work_id),
+    ephemeral: isEphemeral(v.version_id),
     version_date: dateFromVersionId(v.version_id),
     legislation_type: v.legislation_type,
     legislation_status: v.legislation_status,

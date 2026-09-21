@@ -1,5 +1,6 @@
 /**
- * Small helpers for normalising the API's actual response shapes.
+ * Small helpers for normalising the API's actual response shapes, and for
+ * turning identifiers into website links.
  *
  * The list endpoints (`/v0/works/`, `/v0/works/{id}/versions/`) wrap their items
  * in a paginated envelope: `{ results, total, page, per_page }`. There is no
@@ -36,4 +37,38 @@ export function dateFromVersionId(versionId?: string): string | undefined {
   // multiple versions with the same effective date (e.g. `..._2025-09-23B`).
   const m = versionId.match(/(\d{4}-\d{2}-\d{2})[A-Za-z]*$/);
   return m?.[1];
+}
+
+/** Public website root. Identifier segments map onto its URL segments. */
+const WEBSITE_BASE = "https://www.legislation.govt.nz";
+
+/**
+ * Website URL for a work: `/{type}/{subtype}/{year}/{number}/en/latest/`.
+ * The `latest` alias always resolves to the newest version. Only `en` exists.
+ */
+export function workUrl(workId?: string): string | undefined {
+  if (!workId) return undefined;
+  const seg = workId.split("_");
+  if (seg.length !== 4 || seg.some((s) => s === "")) return undefined;
+  return `${WEBSITE_BASE}/${seg.join("/")}/en/latest/`;
+}
+
+/**
+ * Website URL for a specific version:
+ * `/{type}/{subtype}/{year}/{number}/{language}/{version_date}/`.
+ */
+export function versionUrl(versionId?: string): string | undefined {
+  if (!versionId) return undefined;
+  const seg = versionId.split("_");
+  if (seg.length !== 6 || seg.some((s) => s === "")) return undefined;
+  return `${WEBSITE_BASE}/${seg.join("/")}/`;
+}
+
+/**
+ * `true` when an identifier contains a `~` segment. The API marks such ids as
+ * ephemeral: they were built from fallback data and may change later. Returns
+ * undefined (so the key is omitted from JSON) otherwise.
+ */
+export function isEphemeral(id?: string): true | undefined {
+  return id?.includes("~") ? true : undefined;
 }

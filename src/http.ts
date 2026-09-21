@@ -3,7 +3,7 @@
  * legislation-nz-mcp (streamable HTTP entry)
  *
  * Serves the same tools as index.ts over HTTP so the server can run as its own
- * localhost service behind the jlg-mcp gateway. It has NO authentication of its
+ * localhost service behind a reverse proxy or gateway. It has NO authentication of its
  * own by design: it binds to 127.0.0.1 and the gateway is the only thing that
  * talks to it. Do not expose this port to a public interface.
  *

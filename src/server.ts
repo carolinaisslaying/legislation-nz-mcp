@@ -3,28 +3,43 @@
  *
  * Builds a fully-configured McpServer with all tools registered, independent of
  * transport. `index.ts` wraps this in stdio (for Claude Desktop / Claude Code);
- * `http.ts` wraps it in streamable HTTP (for the jlg-mcp remote gateway).
+ * `http.ts` wraps it in streamable HTTP (for a remote gateway).
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { LegislationApiError } from "./client.js";
+import { LegislationApiError, lastRateLimit } from "./client.js";
 import { searchLegislation, searchInputSchema } from "./tools/search.js";
 import { listVersions, versionsInputSchema } from "./tools/versions.js";
 import { getVersionDetails, versionDetailsInputSchema } from "./tools/versionDetails.js";
 import { getLegislationText, getTextInputSchema } from "./tools/getText.js";
 import { listSections, listSectionsInputSchema } from "./tools/listSections.js";
+import { searchLegislationRss, searchRssInputSchema } from "./tools/searchRss.js";
+import { listVersionsRss, versionsRssInputSchema } from "./tools/versionsRss.js";
+import { getRateLimitStatusTool, rateLimitInputSchema } from "./tools/rateLimit.js";
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /**
  * Wrap a tool handler so any error (API or otherwise) is returned as MCP
- * tool-error content rather than crashing the server.
+ * tool-error content rather than crashing the server. Successful object
+ * results gain a `rate_limit` field with the quota headers from the request
+ * the tool just made.
  */
-function toolResult<T>(handler: (args: T) => Promise<unknown>) {
+function toolResult<T>(
+  handler: (args: T) => Promise<unknown>,
+  opts: { attachRateLimit?: boolean } = {},
+) {
+  const attach = opts.attachRateLimit ?? true;
   return async (args: T) => {
     try {
       const data = await handler(args);
+      const payload =
+        attach && isPlainObject(data) ? { ...data, rate_limit: lastRateLimit() } : data;
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+        content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
       };
     } catch (err) {
       const message =
@@ -50,14 +65,21 @@ export function createServer(): McpServer {
 
   server.tool(
     "search_legislation",
-    "Search New Zealand legislation (acts, bills, secondary legislation, amendment papers) by title or full-text content. Returns matching works with their newest matching version id. Use this first to find a work_id or version_id.",
+    "Search New Zealand legislation (acts, bills, secondary legislation, amendment papers) by title or full-text content, or browse by omitting search_term and using filters alone. " +
+      "Returns matching works with their newest matching version id, website URLs, publisher, and available formats. " +
+      "latest_matching_version_is_latest is false when a content search matched only an older version (e.g. text since repealed). " +
+      "Type-specific filters (act_*, bill_*, instrument_*) imply legislation_type; mixing types is rejected. " +
+      "Ids containing ~ are ephemeral and carry ephemeral: true. Use this first to find a work_id or version_id.",
     searchInputSchema,
     toolResult(searchLegislation),
   );
 
   server.tool(
     "list_versions",
-    "List all point-in-time versions of a work (identified by work_id), newest first by default. Use this to find a version_id for a specific date.",
+    "List all point-in-time versions of a work (identified by work_id), newest first by default, each with its website URL; the newest carries is_latest_version: true. " +
+      "Work-level metadata (title, type, status, agencies) is reported once at the top rather than repeated per version. " +
+      "Fetches every page automatically (the API serves at most 100 per page); pass page (and optionally per_page) to fetch a single page instead. " +
+      "Use this to find a version_id for a specific date.",
     versionsInputSchema,
     toolResult(listVersions),
   );
@@ -75,7 +97,7 @@ export function createServer(): McpServer {
       "Without section/schedule params, returns the whole document as cleaned plain text. " +
       "With a section param (e.g. \"22\" or \"25A\"), returns just that section with its Part/subpart context. " +
       "With a schedule param (e.g. \"1\"), returns just that schedule. Use list_sections to discover numbers first. " +
-      "With format:\"pdf\", returns the official PDF download URL instead of text.",
+      "With format:\"pdf\", returns the official PDF download URL instead of text; format:\"pdf_original_scan\" returns the scan of the original printed Act (pre-2008 as-enacted versions only).",
     getTextInputSchema,
     toolResult(getLegislationText),
   );
@@ -86,6 +108,33 @@ export function createServer(): McpServer {
       "Use this before get_legislation_text to find the right section or schedule number.",
     listSectionsInputSchema,
     toolResult(listSections),
+  );
+
+  server.tool(
+    "search_legislation_rss",
+    "Search New Zealand legislation through the legacy Atom feed (the documented /api/rss/search/ endpoint) by title or full text, with type and status filters; omit search_term to browse by filters alone. " +
+      "Returns up to 100 feed entries (title, website URL, derived work_id/version_id, timestamps) plus a subscribable feed URL. " +
+      "Needs LEGISLATION_NZ_RSS_API_KEY, a separate RSS-only key. For on-demand queries prefer search_legislation, which is a superset.",
+    searchRssInputSchema,
+    toolResult(searchLegislationRss),
+  );
+
+  server.tool(
+    "list_versions_rss",
+    "Read the legacy Atom feed of a work's versions (the documented /api/rss/works/{work_id}/versions/ endpoint). " +
+      "Returns one entry per version with its website URL, derived version_id, and publication timestamp, plus a subscribable feed URL for change monitoring. " +
+      "Needs LEGISLATION_NZ_RSS_API_KEY, a separate RSS-only key. For on-demand queries prefer list_versions.",
+    versionsRssInputSchema,
+    toolResult(listVersionsRss),
+  );
+
+  server.tool(
+    "get_rate_limit_status",
+    "Report remaining daily quota from the X-RateLimit-* response headers: the JSON API key (10,000 requests/day) and the feed key (1,500 requests/day). " +
+      "Quotas reset at midnight NZ time. By default spends one minimal API request to get fresh numbers; refresh:\"none\" returns the values last observed. " +
+      "The separate burst limit of 2,000 requests per 5 minutes per IP is not reported in headers.",
+    rateLimitInputSchema,
+    toolResult(getRateLimitStatusTool, { attachRateLimit: false }),
   );
 
   return server;

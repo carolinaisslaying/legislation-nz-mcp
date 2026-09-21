@@ -7,7 +7,7 @@
  * inspect a version's available formats, and read a document's text.
  *
  * Transport: stdio (for Claude Desktop / Claude Code). For remote/HTTP use
- * (e.g. behind the jlg-mcp gateway) see http.ts.
+ * (e.g. behind a reverse proxy or gateway) see http.ts.
  *
  * The LEGISLATION_NZ_API_KEY is read from the environment. For convenience it
  * can instead be placed in a `.env` file in the project root — loaded below

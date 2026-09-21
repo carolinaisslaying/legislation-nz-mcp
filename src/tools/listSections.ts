@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getJson, getDocument, LegislationApiError } from "../client.js";
 import { parseLegislation, buildStructure } from "../xml.js";
-import { dateFromVersionId } from "../util.js";
+import { dateFromVersionId, versionUrl } from "../util.js";
 import { newestVersionId } from "./resolve.js";
 import type { Version } from "../types.js";
 
@@ -51,6 +51,7 @@ export async function listSections(args: z.infer<typeof schema>) {
     work_id: version.work_id,
     title: version.title,
     version_date: dateFromVersionId(versionId),
+    url: versionUrl(versionId),
     ...structure,
   };
 }

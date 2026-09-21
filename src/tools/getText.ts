@@ -3,7 +3,7 @@ import { getJson, getDocument, LegislationApiError } from "../client.js";
 import { htmlToText, xmlToText, truncate } from "../format.js";
 import { parseLegislation, findSection, findSchedule, type ExcludeOption } from "../xml.js";
 import type { Version } from "../types.js";
-import { dateFromVersionId } from "../util.js";
+import { dateFromVersionId, versionUrl } from "../util.js";
 import { newestVersionId } from "./resolve.js";
 
 const DEFAULT_MAX_CHARS = 100_000;
@@ -32,10 +32,13 @@ export const getTextInputSchema = {
       "Cannot be combined with section.",
     ),
   format: z
-    .enum(["pdf"])
+    .enum(["pdf", "pdf_original_scan"])
     .optional()
     .describe(
-      "Set to \"pdf\" to retrieve the official PDF download URL instead of the document text. " +
+      "Set to \"pdf\" to retrieve the official PDF download URL instead of the document text " +
+      "(falls back to the scanned original if no typeset PDF exists). " +
+      "Set to \"pdf_original_scan\" to require the scan of the original printed Act, which only " +
+      "as-enacted versions of pre-2008 Acts have. " +
       "Returns the URL and metadata without downloading the file. " +
       "Cannot be combined with section or schedule.",
     ),
@@ -113,18 +116,23 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
     work_id: version.work_id,
     title: version.title,
     version_date: dateFromVersionId(versionId),
+    url: versionUrl(versionId),
   };
 
   // --- PDF URL mode ---
-  if (args.format === "pdf") {
-    const pdfUrl = formatUrl(version, "pdf") ?? formatUrl(version, "pdf_original_scan");
-    if (!pdfUrl) {
+  if (args.format === "pdf" || args.format === "pdf_original_scan") {
+    const wantScan = args.format === "pdf_original_scan";
+    const pdfType = wantScan
+      ? formatUrl(version, "pdf_original_scan") && "pdf_original_scan"
+      : (formatUrl(version, "pdf") && "pdf") || (formatUrl(version, "pdf_original_scan") && "pdf_original_scan");
+    const pdfUrl = pdfType ? formatUrl(version, pdfType) : undefined;
+    if (!pdfType || !pdfUrl) {
       const available = (version.formats ?? []).map((f) => f.type).join(", ") || "none";
       throw new LegislationApiError(
-        `No PDF format available for version "${versionId}" (available: ${available}).`,
+        `No ${wantScan ? "scanned original" : "PDF"} format available for version "${versionId}" (available: ${available}).`,
       );
     }
-    return { ...meta, pdf_url: pdfUrl };
+    return { ...meta, pdf_url: pdfUrl, pdf_type: pdfType };
   }
 
   // --- Per-section or per-schedule mode ---
