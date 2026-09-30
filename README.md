@@ -137,6 +137,12 @@ Text comes from the official XML format, which carries the document structure.
 The HTML format is only a fallback, because it is the full website page. The
 table of contents is always dropped, since `list_sections` covers it better.
 
+Each table row is one line, with cells separated by ` | ` and paragraphs
+inside a cell by ` / `. Blank or spanned cells keep an empty slot, so every
+cell stays under its column heading (`| | Support for Walking Access | 3,595`).
+A literal `|` in cell text is escaped as `\|`. Footnotes appear inline as
+`[footnote: …]`, and text a bill strikes out as `[deleted: …]`.
+
 #### `search_legislation_rss` and `list_versions_rss`
 
 These call the two legacy feed endpoints in the API documentation. They need a
