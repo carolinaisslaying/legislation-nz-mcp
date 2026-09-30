@@ -14,7 +14,7 @@
  * without issues (dotted tag names like prov.body are opaque to it).
  */
 
-import { parse, type HTMLElement } from "node-html-parser";
+import { parse, NodeType, type HTMLElement } from "node-html-parser";
 import { normalizeWhitespace } from "./format.js";
 
 // Block-level XML elements that should produce a line break in rendered text.
@@ -99,7 +99,12 @@ export function parseLegislation(xml: string): HTMLElement {
  */
 export function renderElementText(el: HTMLElement, exclude: ExcludeOption[] = []): string {
   // Clone by re-parsing the outer HTML so we don't mutate the shared tree.
-  const copy = parse(el.outerHTML, { comment: false }).firstChild as HTMLElement;
+  // Take the first element rather than firstChild: when el is the document
+  // root, some PCO files have a newline after the <?xml?> declaration, so the
+  // first child is a whitespace text node.
+  const copy = parse(el.outerHTML, { comment: false }).childNodes.find(
+    (n) => n.nodeType === NodeType.ELEMENT_NODE,
+  ) as HTMLElement;
   // Always drop auto-generated navigation — list_sections provides this better.
   copy.querySelectorAll("toc, contents").forEach((n) => n.remove());
   for (const opt of exclude) {
