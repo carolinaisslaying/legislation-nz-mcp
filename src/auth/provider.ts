@@ -60,9 +60,9 @@ interface IssuedCode {
 const PRIVATE_ADDRESS = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|f[cd][0-9a-f]{2}:|::ffff:(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.))/i;
 
 /**
- * The visitor's IP for lockouts and rate limits. Behind Cloudflare and Caddy
- * the socket peer is the proxy, so CF-Connecting-IP is used, but only when
- * the request reached us from a private address (i.e. through the proxy).
+ * The visitor's IP for lockouts and rate limits. Behind a Cloudflare Tunnel
+ * the socket peer is cloudflared, so CF-Connecting-IP is used, but only when
+ * the request reached us from a private address (i.e. through the tunnel).
  */
 export function clientIp(req: Request): string {
   const peer = req.socket.remoteAddress ?? "unknown";

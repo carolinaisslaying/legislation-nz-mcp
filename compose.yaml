@@ -1,16 +1,21 @@
-# legislation-nz-mcp, served over streamable HTTP at /mcp with its own login.
+# legislation-nz-mcp, served over streamable HTTP at /mcp with its own login,
+# reached only through a Cloudflare Tunnel.
+#
+# Nothing is published on the host. cloudflared makes an outbound connection
+# to Cloudflare and forwards requests for your public hostname to the server
+# over the private "tunnel" network below. In the Cloudflare dashboard (Zero
+# Trust > Networks > Tunnels > your tunnel > Public hostnames), route the
+# hostname to the service:
+#
+#     http://legislation-mcp:8091
 #
 # Settings are read from .env next to this file (never committed). Each
-# service maps its own values onto the variable names the server reads.
+# service maps its own values onto the variable names it reads.
 #
-# Caddy on the host proxies to the published port. Docker publishes on every
-# host interface by default and its rules bypass ufw, so keep this port closed
-# at your router. Every request to /mcp needs a login, but there is no reason
-# to expose the port beyond Caddy.
-#
-# To add a second instance with a different key, copy the whole service block
-# and its volume, then change the service name, the variable names, the host
-# port and the volume.
+# To add a second server instance with a different key, copy the
+# legislation-mcp block and its volume, change the service name, the variable
+# names and the volume, and add a second public hostname to the same tunnel
+# pointing at the new service name. One cloudflared serves both.
 
 services:
     legislation-mcp:
@@ -21,11 +26,13 @@ services:
             # Optional RSS-only key for the two legacy feed tools.
             LEGISLATION_NZ_RSS_API_KEY: ${LEGISLATION_NZ_RSS_API_KEY:-}
             LEGISLATION_PUBLIC_URL: ${LEGISLATION_PUBLIC_URL:?set LEGISLATION_PUBLIC_URL in .env}
-            LEGISLATION_AUTH_USERS: ${LEGISLATION_AUTH_USERS:?set LEGISLATION_AUTH_USERS in .env}
+            # Optional here so the hash-password command can run before any user
+            # exists; the server itself refuses to start without one.
+            LEGISLATION_AUTH_USERS: ${LEGISLATION_AUTH_USERS:-}
             LEGISLATION_DAILY_CAP_PER_USER: ${LEGISLATION_DAILY_CAP_PER_USER:-4000}
             LEGISLATION_AUTH_REDIRECT_ALLOWLIST: ${LEGISLATION_AUTH_REDIRECT_ALLOWLIST:-}
-        ports:
-            - "48091:8091"
+        networks:
+            - tunnel
         volumes:
             - legislation-mcp-data:/data
         read_only: true
@@ -47,6 +54,32 @@ services:
                 max-size: "10m"
                 max-file: "5"
 
+    cloudflared:
+        # Pinned; check https://hub.docker.com/r/cloudflare/cloudflared/tags
+        # for newer releases. On an ARM server, use the -arm64 tag.
+        image: cloudflare/cloudflared:2026.9.3
+        restart: unless-stopped
+        command: ["tunnel", "--no-autoupdate", "run"]
+        environment:
+            # The token from the dashboard's install command (the long string
+            # after --token). It lets anyone run your tunnel: keep it secret.
+            TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+        networks:
+            - tunnel
+        depends_on:
+            legislation-mcp:
+                condition: service_healthy
+        read_only: true
+        cap_drop:
+            - ALL
+        security_opt:
+            - no-new-privileges:true
+        logging:
+            driver: json-file
+            options:
+                max-size: "10m"
+                max-file: "5"
+
     # legislation-mcp-2:
     #     build: .
     #     restart: unless-stopped
@@ -54,14 +87,17 @@ services:
     #         LEGISLATION_NZ_API_KEY: ${LEGISLATION_NZ_API_KEY_2:?set LEGISLATION_NZ_API_KEY_2 in .env}
     #         LEGISLATION_NZ_RSS_API_KEY: ${LEGISLATION_NZ_RSS_API_KEY_2:-}
     #         LEGISLATION_PUBLIC_URL: ${LEGISLATION_PUBLIC_URL_2:?set LEGISLATION_PUBLIC_URL_2 in .env}
-    #         LEGISLATION_AUTH_USERS: ${LEGISLATION_AUTH_USERS_2:?set LEGISLATION_AUTH_USERS_2 in .env}
+    #         LEGISLATION_AUTH_USERS: ${LEGISLATION_AUTH_USERS_2:-}
     #         LEGISLATION_DAILY_CAP_PER_USER: ${LEGISLATION_DAILY_CAP_PER_USER_2:-4000}
     #         LEGISLATION_AUTH_REDIRECT_ALLOWLIST: ${LEGISLATION_AUTH_REDIRECT_ALLOWLIST_2:-}
-    #     ports:
-    #         - "48092:8091"
+    #     networks:
+    #         - tunnel
     #     volumes:
     #         - legislation-mcp-2-data:/data
     #     (and the same read_only, tmpfs, cap_drop, security_opt, healthcheck and logging as above)
+
+networks:
+    tunnel:
 
 volumes:
     legislation-mcp-data:

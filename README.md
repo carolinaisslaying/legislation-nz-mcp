@@ -301,7 +301,14 @@ cp .env.example .env
 ```
 
 Set `LEGISLATION_NZ_API_KEY`, and `LEGISLATION_PUBLIC_URL` to the address the
-server is reached at (e.g. `https://legislation.example.nz`, origin only).
+server will be reached at (e.g. `https://legislation.example.nz`, origin only).
+
+The server is reached only through a Cloudflare Tunnel run by the `cloudflared`
+service in `compose.yaml`; nothing is published on the host. In the Cloudflare
+dashboard, under Zero Trust → Networks → Tunnels, create a tunnel (connector
+type Cloudflared), copy the token from its install command (the long string
+after `--token`) into `CLOUDFLARE_TUNNEL_TOKEN`, and add a public hostname
+(`legislation.example.nz`) whose service is `http://legislation-mcp:8091`.
 
 **2. Add a user** for each person. This asks for the password twice without
 showing it, and prints a line with a scrypt hash of it (never the password):
@@ -325,10 +332,13 @@ run the command themselves, or type it in when you run it.
 docker compose up -d --build
 ```
 
-The server listens on host port 48091. Point Caddy at it, e.g.
-`reverse_proxy 127.0.0.1:48091` (or the host's address, if Caddy runs in a
-container), and keep the port closed at your router. Check it with
+`cloudflared` starts once the server reports healthy. Check it with
 `curl https://legislation.example.nz/healthz`.
+
+Leave Cloudflare Access off for this hostname (the server has its own login),
+and make sure no bot or browser challenge applies to it (Bot Fight Mode,
+Browser Integrity Check, Under Attack mode, or a challenge rule): claude.ai's
+servers call `/register`, `/token` and `/mcp` directly and cannot answer one.
 
 **4. Connect claude.ai.** In claude.ai, open Settings → Connectors → Add custom
 connector and enter `https://legislation.example.nz/mcp`. A login window
@@ -351,6 +361,7 @@ whole login is revoked, since someone else must hold a copy.
   trick you into logging in on its behalf.
 - Five wrong passwords in 15 minutes lock that username for 15 minutes;
   twenty lock the visitor's IP (read from Cloudflare's `CF-Connecting-IP`).
+- No port is published on the host: the only way in is the tunnel.
 - Each person may make 4,000 upstream API requests per NZ day
   (`LEGISLATION_DAILY_CAP_PER_USER`), so one runaway chat cannot exhaust the
   key's 10,000.
