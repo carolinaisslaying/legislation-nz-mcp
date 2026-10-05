@@ -1,0 +1,32 @@
+# legislation-nz-mcp, served over streamable HTTP at /mcp.
+#
+# Keys are read from .env next to this file (never committed). Each service
+# maps its own key onto LEGISLATION_NZ_API_KEY inside its container.
+#
+# The server has no authentication of its own. Caddy on the host proxies to
+# the published port. Docker publishes on every host interface by default and
+# its rules bypass ufw, so keep this port closed at your router, or prefix it
+# with 127.0.0.1: if Caddy can reach the host's loopback.
+#
+# To add a second instance with a different key, copy the whole service block,
+# then change the service name, the key variable and the host port.
+
+services:
+    legislation-mcp:
+        build: .
+        restart: unless-stopped
+        environment:
+            LEGISLATION_NZ_API_KEY: ${LEGISLATION_NZ_API_KEY:?set LEGISLATION_NZ_API_KEY in .env}
+            # Optional RSS-only key for the two legacy feed tools.
+            LEGISLATION_NZ_RSS_API_KEY: ${LEGISLATION_NZ_RSS_API_KEY:-}
+        ports:
+            - "48091:8091"
+
+    # legislation-mcp-2:
+    #     build: .
+    #     restart: unless-stopped
+    #     environment:
+    #         LEGISLATION_NZ_API_KEY: ${LEGISLATION_NZ_API_KEY_2:?set LEGISLATION_NZ_API_KEY_2 in .env}
+    #         LEGISLATION_NZ_RSS_API_KEY: ${LEGISLATION_NZ_RSS_API_KEY_2:-}
+    #     ports:
+    #         - "48092:8091"
