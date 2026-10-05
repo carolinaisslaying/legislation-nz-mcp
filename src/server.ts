@@ -114,6 +114,9 @@ export function createServer(): McpServer {
         "Without section/schedule params, returns the whole document as cleaned plain text. " +
         "With a section param (e.g. \"22\" or \"25A\"), returns just that section with its Part/subpart context. " +
         "With a schedule param (e.g. \"1\"), returns just that schedule. Use list_sections to discover numbers first. " +
+        "Only the document's own provisions are matched, never text quoted inside an amending provision. " +
+        "A non-current provision carries status (e.g. \"repealed\", \"struck_out\"). Where a number is shared (a repealed section and a later one with the same number), " +
+        "the current one is returned with other_matches and a warning; always pass the warning on to the user. " +
         "With format:\"pdf\", returns the official PDF download URL instead of text; format:\"pdf_original_scan\" returns the scan of the original printed Act (pre-2008 as-enacted versions only).",
       inputSchema: getTextInputSchema,
       annotations: READ_ONLY_TOOL,
@@ -126,6 +129,7 @@ export function createServer(): McpServer {
     {
       description:
         "List the structure of a legislation document: Parts, subparts, section numbers and headings, and schedules. " +
+        "Entries that are not current carry status (e.g. \"repealed\", \"struck_out\"); text quoted inside amending provisions is not listed. " +
         "Use this before get_legislation_text to find the right section or schedule number.",
       inputSchema: listSectionsInputSchema,
       annotations: READ_ONLY_TOOL,

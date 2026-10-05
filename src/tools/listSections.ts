@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getJson, getDocument, LegislationApiError } from "../client.js";
-import { parseLegislation, buildStructure } from "../xml.js";
+import { parseLegislation, buildStructure, documentKind } from "../xml.js";
 import { dateFromVersionId, versionUrl } from "../util.js";
 import { newestVersionId } from "./resolve.js";
 import type { Version } from "../types.js";
@@ -52,6 +52,10 @@ export async function listSections(args: z.infer<typeof schema>) {
     title: version.title,
     version_date: dateFromVersionId(versionId),
     url: versionUrl(versionId),
+    note:
+      documentKind(root) === "sop"
+        ? "This is an amendment paper: it has no sections of its own, only proposed amendments to a bill. Read the whole paper with get_legislation_text."
+        : undefined,
     ...structure,
   };
 }

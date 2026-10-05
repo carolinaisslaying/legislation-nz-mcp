@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getJson, getDocument, LegislationApiError } from "../client.js";
 import { htmlToText, xmlToText, truncate } from "../format.js";
-import { parseLegislation, findSection, findSchedule, type ExcludeOption } from "../xml.js";
+import { parseLegislation, findSection, findSchedule, documentKind, type ExcludeOption } from "../xml.js";
 import type { Version } from "../types.js";
 import { dateFromVersionId, versionUrl } from "../util.js";
 import { newestVersionId } from "./resolve.js";
@@ -145,6 +145,12 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
     }
     const xml = await getDocument(xmlUrl);
     const root = parseLegislation(xml);
+    if (documentKind(root) === "sop") {
+      throw new LegislationApiError(
+        `"${version.title ?? versionId}" is an amendment paper: it contains only proposed amendments to a bill and has no ` +
+          "sections or schedules of its own. Read the whole paper instead (omit section and schedule).",
+      );
+    }
 
     if (args.section) {
       const result = findSection(root, args.section, exclude);

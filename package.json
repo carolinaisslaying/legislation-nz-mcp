@@ -15,7 +15,8 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "start:http": "node dist/http.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsc && node --test test/"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",

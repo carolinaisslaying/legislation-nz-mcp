@@ -113,7 +113,26 @@ const EXCLUDE_SELECTORS: Record<ExcludeOption, string> = {
   end_matter: "end\\.reprint-note, leg-history",
 };
 
-export interface SectionResult {
+/**
+ * Where a provision or schedule is not current: the PCO's deletion-status
+ * ("repealed", "not_in_force", ...) or "struck_out" for text a bill's
+ * committee struck out. Absent when the provision is current.
+ */
+export type ProvisionStatus = string;
+
+/** Another of the document's own provisions with the same number. */
+export interface OtherMatch {
+  heading: string;
+  status: ProvisionStatus;
+}
+
+interface LookupNotes {
+  status?: ProvisionStatus;
+  other_matches?: OtherMatch[];
+  warning?: string;
+}
+
+export interface SectionResult extends LookupNotes {
   number: string;
   heading: string;
   part?: string;
@@ -121,7 +140,7 @@ export interface SectionResult {
   text: string;
 }
 
-export interface ScheduleResult {
+export interface ScheduleResult extends LookupNotes {
   number: string;
   heading: string;
   text: string;
@@ -130,6 +149,7 @@ export interface ScheduleResult {
 export interface SectionSummary {
   number: string;
   heading: string;
+  status?: ProvisionStatus;
 }
 
 export interface SubpartSummary {
@@ -692,41 +712,108 @@ function ancestorContext(prov: HTMLElement): { part?: string; subpart?: string }
 }
 
 /**
+ * Elements whose contents are not the document's own provisions: text quoted
+ * from or into another instrument (<amend> in Acts, bills and regulations,
+ * <instrument.amend> in amendment papers), and the end-matter skeletons that
+ * reproduce other Acts. Checked live against amendment Acts, a bill, an SOP,
+ * regulations and the Crimes Act (October 2026).
+ */
+const NOT_OWN_CONTENT_TAGS = ["amend", "instrument.amend", "skeletons"];
+
+/** True when the element sits inside quoted text or another Act's skeleton. */
+function isNotOwnContent(el: HTMLElement): boolean {
+  for (let n = el.parentNode; n; n = n.parentNode) if (NOT_OWN_CONTENT_TAGS.includes(tagOf(n))) return true;
+  return false;
+}
+
+/** The nearest status marker on the element or its ancestors (see ProvisionStatus). */
+function provisionStatus(el: HTMLElement): ProvisionStatus | undefined {
+  for (let n: HTMLElement | null = el; n; n = n.parentNode) {
+    if (isStruckOut(n) && tagOf(n) !== "struckoutwords") return "struck_out";
+    // node-html-parser splits dotted attribute names, so read the raw attributes.
+    const deletion = /\bdeletion-status=["']([^"']+)["']/.exec(n.rawAttrs ?? "");
+    if (deletion) return deletion[1].replace(/-/g, "_");
+  }
+  return undefined;
+}
+
+/**
+ * From the document's own elements with the requested label, pick the current
+ * one (or the first, if none is current) and describe any others, so that a
+ * reused number is never resolved silently.
+ */
+function pickMatch(matches: HTMLElement[], kind: string, number: string): { el: HTMLElement; notes: LookupNotes } | null {
+  if (!matches.length) return null;
+  const el = matches.find((m) => !provisionStatus(m)) ?? matches[0];
+  const status = provisionStatus(el);
+  const others = matches.filter((m) => m !== el);
+  const notes: LookupNotes = { status };
+  if (others.length) {
+    notes.other_matches = others.map((m) => ({ heading: directHeading(m), status: provisionStatus(m) ?? "current" }));
+    const described = notes.other_matches.map((m) => `${m.status} ("${m.heading}")`).join("; ");
+    notes.warning =
+      `This document has ${matches.length} ${kind}s numbered ${number}. ` +
+      (status ? `None is current; this one is ${status}.` : "This is the current one.") +
+      ` The other${others.length > 1 ? "s are" : " is"}: ${described}.`;
+  }
+  return { el, notes };
+}
+
+/** The document's root element name: "act", "bill", "regulation", "sop", ... */
+export function documentKind(root: HTMLElement): string {
+  const top = root.childNodes.find((n) => n.nodeType === NodeType.ELEMENT_NODE) as HTMLElement | undefined;
+  return tagOf(top);
+}
+
+/**
  * Find a section (provision) by number within the main <body>.
- * Scoped to <body> so schedule/amendment provisions with duplicate numbers
- * are not matched.
+ * Scoped to <body> so schedule provisions with duplicate numbers are not
+ * matched, and ignores provisions quoted from or into other instruments.
  */
 export function findSection(root: HTMLElement, id: string, exclude: ExcludeOption[] = []): SectionResult | null {
   const body = root.querySelector("body");
   if (!body) return null;
   const normalised = id.trim();
-  const provs = body.querySelectorAll("prov");
-  const prov = provs.find((p) => directLabel(p) === normalised);
-  if (!prov) return null;
+  const provs = body.querySelectorAll("prov").filter((p) => !isNotOwnContent(p) && directLabel(p) === normalised);
+  const match = pickMatch(provs, "provision", normalised);
+  if (!match) return null;
+  const prov = match.el;
   const { part, subpart } = ancestorContext(prov);
   return {
     number: normalised,
     heading: directHeading(prov),
     part,
     subpart,
+    ...match.notes,
     text: renderElementText(prov, exclude),
   };
 }
 
 /**
  * Find a schedule by number.
- * Schedules live under <schedule.group>, separate from <body>.
+ * Schedules live under <schedule.group>, separate from <body>. Schedules
+ * quoted from or into other instruments are ignored.
  */
 export function findSchedule(root: HTMLElement, id: string, exclude: ExcludeOption[] = []): ScheduleResult | null {
   const normalised = id.trim();
-  const schedules = root.querySelectorAll("schedule");
-  const sched = schedules.find((s) => directLabel(s) === normalised);
-  if (!sched) return null;
+  const schedules = ownSchedules(root).filter((s) => directLabel(s) === normalised);
+  const match = pickMatch(schedules, "schedule", normalised);
+  if (!match) return null;
+  const sched = match.el;
   return {
     number: normalised,
     heading: directHeading(sched),
+    ...match.notes,
     text: renderElementText(sched, exclude),
   };
+}
+
+function ownSchedules(root: HTMLElement): HTMLElement[] {
+  return root.querySelectorAll("schedule").filter((s) => !isNotOwnContent(s));
+}
+
+function sectionSummary(el: HTMLElement): SectionSummary {
+  return { number: directLabel(el), heading: directHeading(el), status: provisionStatus(el) };
 }
 
 /**
@@ -745,7 +832,7 @@ export function buildStructure(root: HTMLElement): DocumentStructure {
       const el = child as HTMLElement;
       const tag = el.rawTagName?.toLowerCase();
       if (tag === "prov") {
-        ungroupedSections.push({ number: directLabel(el), heading: directHeading(el) });
+        ungroupedSections.push(sectionSummary(el));
       } else if (tag === "part") {
         const partEntry: PartSummary = {
           label: directLabel(el),
@@ -757,7 +844,7 @@ export function buildStructure(root: HTMLElement): DocumentStructure {
           const pc = partChild as HTMLElement;
           const ptag = pc.rawTagName?.toLowerCase();
           if (ptag === "prov") {
-            partEntry.sections.push({ number: directLabel(pc), heading: directHeading(pc) });
+            partEntry.sections.push(sectionSummary(pc));
           } else if (ptag === "subpart") {
             const subpartEntry: SubpartSummary = {
               label: directLabel(pc),
@@ -767,7 +854,7 @@ export function buildStructure(root: HTMLElement): DocumentStructure {
             for (const spChild of pc.childNodes) {
               const sc = spChild as HTMLElement;
               if (sc.rawTagName?.toLowerCase() === "prov") {
-                subpartEntry.sections.push({ number: directLabel(sc), heading: directHeading(sc) });
+                subpartEntry.sections.push(sectionSummary(sc));
               }
             }
             partEntry.subparts.push(subpartEntry);
@@ -778,9 +865,7 @@ export function buildStructure(root: HTMLElement): DocumentStructure {
     }
   }
 
-  const schedules: SectionSummary[] = root
-    .querySelectorAll("schedule")
-    .map((s) => ({ number: directLabel(s), heading: directHeading(s) }));
+  const schedules: SectionSummary[] = ownSchedules(root).map(sectionSummary);
 
   return { ungroupedSections, parts, schedules };
 }
