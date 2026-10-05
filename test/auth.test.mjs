@@ -46,9 +46,13 @@ async function start(port, users, extraEnv = {}) {
         ...extraEnv,
     });
     const app = createHttpApp(setup);
-    const server = await new Promise((r) => {
-        const s = app.listen(port, "127.0.0.1", () => r(s));
+    // No keep-alive: the tests restart the server, and fetch would otherwise
+    // sometimes reuse a pooled socket to the closed one (ECONNRESET).
+    const server = http.createServer((req, res) => {
+        res.shouldKeepAlive = false;
+        app(req, res);
     });
+    await new Promise((r) => server.listen(port, "127.0.0.1", r));
     servers = [server];
     return setup;
 }
