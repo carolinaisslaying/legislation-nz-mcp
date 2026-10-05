@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getJson, getDocument, LegislationApiError } from "../client.js";
 import { htmlToText, xmlToText, truncate } from "../format.js";
-import { parseLegislation, findSection, findSchedule, documentKind, type ExcludeOption } from "../xml.js";
+import { parseLegislation, findSection, findSchedule, documentKind, documentAsAt, type ExcludeOption } from "../xml.js";
 import type { Version } from "../types.js";
 import { dateFromVersionId, versionUrl } from "../util.js";
 import { resolveVersion } from "./resolve.js";
@@ -90,6 +90,26 @@ export const getTextInputSchema = {
 
 const schema = z.object(getTextInputSchema);
 
+/**
+ * Check that a fetched XML document is the version asked for, and return the
+ * as-at date it declares. The API links the newest version through a
+ * "latest" URL, so a version published between choosing a version and
+ * fetching it would otherwise be returned under the older version's id.
+ * Bills and amendment papers declare no date; for those this returns
+ * undefined. (Versions sharing a date, B, C, ..., cannot be told apart.)
+ */
+export function checkDocumentVersion(xml: string, versionId: string): string | undefined {
+  const declared = documentAsAt(xml);
+  const expected = dateFromVersionId(versionId);
+  if (declared && expected && declared !== expected) {
+    throw new LegislationApiError(
+      `The document fetched for ${versionId} is dated ${declared}, not ${expected}: a newer version was probably ` +
+        "published while it was being read. Ask again, or name a version_id.",
+    );
+  }
+  return declared;
+}
+
 /** Find a format URL by type ("xml", "html", ...) on a version, if present. */
 function formatUrl(v: Version, type: string): string | undefined {
   return (v.formats ?? []).find((f) => (f.type ?? "").toLowerCase() === type)?.url;
@@ -147,6 +167,7 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
       );
     }
     const xml = await getDocument(xmlUrl);
+    const documentAsAtDate = checkDocumentVersion(xml, versionId);
     const root = parseLegislation(xml);
     if (documentKind(root) === "sop") {
       throw new LegislationApiError(
@@ -162,7 +183,7 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
           `Section ${args.section} not found in "${version.title ?? versionId}". Use list_sections to see available section numbers.`,
         );
       }
-      return { ...meta, source_url: xmlUrl, source_format: "xml", ...result };
+      return { ...meta, document_as_at: documentAsAtDate, source_url: xmlUrl, source_format: "xml", ...result };
     } else {
       const result = findSchedule(root, args.schedule!, exclude);
       if (!result) {
@@ -170,7 +191,7 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
           `Schedule ${args.schedule} not found in "${version.title ?? versionId}". Use list_sections to see available schedules.`,
         );
       }
-      return { ...meta, source_url: xmlUrl, source_format: "xml", ...result };
+      return { ...meta, document_as_at: documentAsAtDate, source_url: xmlUrl, source_format: "xml", ...result };
     }
   }
 
@@ -185,8 +206,9 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
 
   const source = xmlUrl ? "xml" : "html";
   const raw = await getDocument(url);
+  const documentAsAtDate = source === "xml" ? checkDocumentVersion(raw, versionId) : undefined;
   const text = source === "xml" ? xmlToText(raw, exclude) : htmlToText(raw);
   const { text: out, truncated } = truncate(text, args.max_chars ?? DEFAULT_MAX_CHARS);
 
-  return { ...meta, source_url: url, source_format: source, truncated, text: out };
+  return { ...meta, document_as_at: documentAsAtDate, source_url: url, source_format: source, truncated, text: out };
 }

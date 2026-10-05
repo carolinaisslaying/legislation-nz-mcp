@@ -759,6 +759,16 @@ function pickMatch(matches: HTMLElement[], kind: string, number: string): { el: 
   return { el, notes };
 }
 
+/**
+ * The as-at date (YYYY-MM-DD) a document declares on its root element, which
+ * Acts and regulations carry and bills and amendment papers do not. Read from
+ * the raw XML so the whole document need not be parsed.
+ */
+export function documentAsAt(xml: string): string | undefined {
+  const root = /<(?![?!])[\w.-]+(\s[^>]*)?>/.exec(xml);
+  return root?.[1] ? /\sdate\.as\.at="(\d{4}-\d{2}-\d{2})"/.exec(root[1])?.[1] : undefined;
+}
+
 /** The document's root element name: "act", "bill", "regulation", "sop", ... */
 export function documentKind(root: HTMLElement): string {
   const top = root.childNodes.find((n) => n.nodeType === NodeType.ELEMENT_NODE) as HTMLElement | undefined;

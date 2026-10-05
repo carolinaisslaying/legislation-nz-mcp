@@ -141,6 +141,7 @@ export function createServer(hooks: ServerHooks = {}): McpServer {
         "Only the document's own provisions are matched, never text quoted inside an amending provision. " +
         "A non-current provision carries status (e.g. \"repealed\", \"struck_out\"). Where a number is shared (a repealed section and a later one with the same number), " +
         "the current one is returned with other_matches and a warning; always pass the warning on to the user. " +
+        "document_as_at is the as-at date the fetched document itself declares (Acts and regulations); a document that does not match the requested version is refused. " +
         "With format:\"pdf\", returns the official PDF download URL instead of text; format:\"pdf_original_scan\" returns the scan of the original printed Act (pre-2008 as-enacted versions only).",
       inputSchema: getTextInputSchema,
       annotations: READ_ONLY_TOOL,

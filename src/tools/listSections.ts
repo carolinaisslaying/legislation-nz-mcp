@@ -3,6 +3,7 @@ import { getJson, getDocument, LegislationApiError } from "../client.js";
 import { parseLegislation, buildStructure, documentKind } from "../xml.js";
 import { dateFromVersionId, versionUrl } from "../util.js";
 import { resolveVersion } from "./resolve.js";
+import { checkDocumentVersion } from "./getText.js";
 import type { Version } from "../types.js";
 
 export const listSectionsInputSchema = {
@@ -45,6 +46,7 @@ export async function listSections(args: z.infer<typeof schema>) {
   }
 
   const xml = await getDocument(xmlUrl);
+  const documentAsAtDate = checkDocumentVersion(xml, versionId);
   const root = parseLegislation(xml);
   const structure = buildStructure(root);
 
@@ -55,6 +57,7 @@ export async function listSections(args: z.infer<typeof schema>) {
     version_date: dateFromVersionId(versionId),
     url: versionUrl(versionId),
     ...selection,
+    document_as_at: documentAsAtDate,
     note:
       documentKind(root) === "sop"
         ? "This is an amendment paper: it has no sections of its own, only proposed amendments to a bill. Read the whole paper with get_legislation_text."

@@ -121,3 +121,26 @@ test("provisions and schedules of other Acts in end-matter skeletons are ignored
     assert.deepEqual(buildStructure(root).schedules, []);
     assert.equal(documentKind(root), "act");
 });
+
+test("the as-at date a document declares is read from its root element", async () => {
+    const { documentAsAt } = await import("../dist/xml.js");
+    assert.equal(
+        documentAsAt('<?xml version="1.0"?>\n<act xml:lang="en-NZ" act.no="43" date.as.at="2026-08-08" date.assent="1961-11-01">'),
+        "2026-08-08",
+    );
+    assert.equal(documentAsAt('<regulation date.as.at="2026-09-21" sr.no="288">'), "2026-09-21");
+    assert.equal(documentAsAt('<bill bill.no="223" stage="3">'), undefined);
+    // Only the root element counts.
+    assert.equal(documentAsAt('<sop sop.no="660"><act date.as.at="2020-01-01"></act></sop>'), undefined);
+});
+
+test("a document whose as-at date differs from the requested version is refused", async () => {
+    const { checkDocumentVersion } = await import("../dist/tools/getText.js");
+    const xml = '<act act.no="74" date.as.at="2026-01-15">';
+    assert.throws(
+        () => checkDocumentVersion(xml, "act_public_2025_74_en_2025-11-26B"),
+        /is dated 2026-01-15, not 2025-11-26/,
+    );
+    assert.equal(checkDocumentVersion('<act date.as.at="2025-11-26">', "act_public_2025_74_en_2025-11-26B"), "2025-11-26");
+    assert.equal(checkDocumentVersion('<bill stage="3">', "bill_government_2025_223_en_2026-07-29"), undefined);
+});
