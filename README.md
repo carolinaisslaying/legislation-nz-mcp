@@ -10,7 +10,7 @@ API published by the Parliamentary Counsel Office (PCO).
 
 Written in TypeScript on the official MCP SDK. It runs over stdio for local
 clients (Claude Desktop, Claude Code, Cursor, and any other MCP client) or over
-streamable HTTP as a standalone localhost service.
+streamable HTTP, with its own login, for claude.ai custom connectors.
 
 ## What it can do
 
@@ -55,10 +55,10 @@ a reader can verify it at the source.
 
 **Read the law as it stood on a date**
 
-1. `list_versions` with the `work_id` lists every version with its effective
-   date.
-2. `get_legislation_text` with the chosen `version_id` and a `section` or
-   `schedule`.
+`get_legislation_text` with the `work_id`, `as_at: "2015-06-30"` and a
+`section` or `schedule` reads the version in force on that date. To choose a
+version yourself, `list_versions` lists every version with its effective date;
+pass the chosen `version_id` instead.
 
 **Find legislation by what it says**
 
@@ -118,20 +118,40 @@ Takes a `version_id`. Returns the version's metadata, its `url`, the work's
 
 #### `list_sections`
 
-Takes a `version_id` or a `work_id` (the newest version is used). Returns
-`parts[]` with their subparts and sections, any sections outside a Part, and
-`schedules[]`. Needs the XML format, which all PCO-published documents have.
+Takes a `version_id`, or a `work_id` with an optional `as_at` date (see
+below). Returns `parts[]` with their subparts and sections, any sections
+outside a Part, and `schedules[]`. Entries that are not current carry a
+`status` such as `repealed` or `struck_out`. Provisions and schedules quoted
+inside amending provisions are not listed. Needs the XML format, which all
+PCO-published documents have.
 
 #### `get_legislation_text`
 
 | Parameter | Notes |
 | --- | --- |
-| `version_id` or `work_id` | One is required. A `work_id` resolves to the newest version. |
+| `version_id` or `work_id` | One is required. A `work_id` resolves to the newest version dated on or before today (NZ time), so a future-dated version is never served as current law. |
+| `as_at` | With `work_id`: a date (`YYYY-MM-DD`). Reads the newest version dated on or before it, i.e. the law as it stood then. |
 | `section` | A section number such as `"22"` or `"25A"`. Returns only that provision with its Part and subpart. |
 | `schedule` | A schedule number such as `"1"`. |
 | `format` | `pdf` returns the PDF download URL instead of text. `pdf_original_scan` returns the scan of the original printed Act, which only as-enacted versions of pre-2008 Acts have. |
 | `max_chars` | Truncates whole-document output (default 100,000 characters). Not applied to a single section or schedule. |
 | `exclude` | Content types to strip: `cover`, `history_notes`, `comparative_references`, `editorial_notes`, `defined_term_links`, `end_matter`. Everything is kept by default. |
+
+A section or schedule lookup only matches the document's own provisions. Text
+quoted inside an amending provision (a "new section 40" being inserted into
+another Act, say) is never returned in place of the Act's own section 40. Where
+a number is genuinely shared, as when a repealed section's number is reused,
+the current provision is returned with `other_matches` and a plain-English
+`warning`. A provision that is not current carries `status` (`repealed`,
+`not_in_force`, `struck_out`, ...). An amendment paper has no provisions of its
+own, so asking one for a section explains that rather than reporting "not
+found".
+
+Every response names the version read (`version_id`, `version_date`) and how it
+was chosen (`selected_by`: `as_at` or `latest_current`). For Acts and
+regulations, `document_as_at` is the as-at date the fetched document itself
+declares, an independent check on the version. A document that does not match
+the version asked for is refused.
 
 Text comes from the official XML format, which carries the document structure.
 The HTML format is only a fallback, because it is the full website page. The
@@ -253,17 +273,99 @@ single argument is the absolute path to `dist/index.js`.
 
 ### Run over HTTP
 
-The server can also run as its own localhost HTTP service, for example behind
-a reverse proxy or gateway that handles authentication:
+The server can also run as an HTTP service for claude.ai custom connectors:
 
 ```bash
 npm run start:http
 ```
 
-It serves the MCP streamable HTTP transport at `http://127.0.0.1:8091/mcp`.
-Override the bind address with `LEGISLATION_HTTP_HOST` and
-`LEGISLATION_HTTP_PORT`. The HTTP entry point has no authentication of its own
-and must not be exposed on a public interface.
+It serves the MCP streamable HTTP transport at `http://127.0.0.1:8091/mcp`
+(override with `LEGISLATION_HTTP_HOST` and `LEGISLATION_HTTP_PORT`). Requests
+to `/mcp` need a login: see [Self-hosting with a login](#self-hosting-with-a-login).
+For local testing without a login, set `LEGISLATION_AUTH=off`; the server then
+listens on 127.0.0.1 only.
+
+### Self-hosting with a login
+
+The HTTP server is its own OAuth 2.1 authorisation server. When you add it to
+claude.ai as a custom connector, claude.ai opens this server's login page; you
+sign in once with your own username and password, and claude.ai then holds a
+token for that login. Only the people listed in `LEGISLATION_AUTH_USERS` can
+sign in. Someone else who finds the URL gets the same login page and no
+further.
+
+**1. Set up `.env`** on the server, next to `compose.yaml`:
+
+```bash
+cp .env.example .env
+```
+
+Set `LEGISLATION_NZ_API_KEY`, and `LEGISLATION_PUBLIC_URL` to the address the
+server is reached at (e.g. `https://legislation.example.nz`, origin only).
+
+**2. Add a user** for each person. This asks for the password twice without
+showing it, and prints a line with a scrypt hash of it (never the password):
+
+```bash
+docker compose run --rm legislation-mcp node dist/auth/cli.js hash-password carolina
+```
+
+Put the printed lines in `.env`, comma-separated:
+
+```
+LEGISLATION_AUTH_USERS=carolina:scrypt.32768.8.1....,khai:scrypt.32768.8.1....
+```
+
+Passwords need at least 12 characters. Each person should choose their own and
+run the command themselves, or type it in when you run it.
+
+**3. Start it:**
+
+```bash
+docker compose up -d --build
+```
+
+The server listens on host port 48091. Point Caddy at it, e.g.
+`reverse_proxy 127.0.0.1:48091` (or the host's address, if Caddy runs in a
+container), and keep the port closed at your router. Check it with
+`curl https://legislation.example.nz/healthz`.
+
+**4. Connect claude.ai.** In claude.ai, open Settings → Connectors → Add custom
+connector and enter `https://legislation.example.nz/mcp`. A login window
+opens; sign in with your username and password. Each person does this in their
+own claude.ai account.
+
+**Removing someone or changing a password.** Delete their entry from
+`LEGISLATION_AUTH_USERS` (or replace its hash), then
+`docker compose up -d`. Their logins stop working on their next request.
+
+**How long a login lasts.** Access tokens last an hour and are renewed
+silently. A login ends after 30 days without use, or when revoked. Tokens are
+rotated on every renewal, and if an old token is ever presented again the
+whole login is revoked, since someone else must hold a copy.
+
+**What else protects it.**
+
+- Clients may only register claude.ai's own callback addresses
+  (`LEGISLATION_AUTH_REDIRECT_ALLOWLIST` to change), so another site cannot
+  trick you into logging in on its behalf.
+- Five wrong passwords in 15 minutes lock that username for 15 minutes;
+  twenty lock the visitor's IP (read from Cloudflare's `CF-Connecting-IP`).
+- Each person may make 4,000 upstream API requests per NZ day
+  (`LEGISLATION_DAILY_CAP_PER_USER`), so one runaway chat cannot exhaust the
+  key's 10,000.
+- Only hashes of tokens are stored, in `/data/auth-state.json` on a Docker
+  volume. The container has a read-only filesystem, drops all capabilities,
+  and runs as an unprivileged user.
+
+**Usage log.** Each tool call is logged as one line of JSON: who, which tool,
+which document and section, whether it succeeded, how many upstream requests
+it made, and how long it took. Search terms, legislation text, keys and
+tokens are never logged. Logins, failed logins and lockouts are logged too.
+
+```bash
+docker compose logs -f legislation-mcp
+```
 
 ### Environment variables
 
@@ -271,8 +373,14 @@ and must not be exposed on a public interface.
 | --- | --- | --- |
 | `LEGISLATION_NZ_API_KEY` | Yes | Key for the JSON API (10,000 requests/day). |
 | `LEGISLATION_NZ_RSS_API_KEY` | No | RSS-only key for the two feed tools (1,500 requests/day). |
-| `LEGISLATION_HTTP_HOST` | No | Bind address for the HTTP transport (default `127.0.0.1`). |
+| `LEGISLATION_HTTP_HOST` | No | Bind address for the HTTP transport (default `127.0.0.1`; `0.0.0.0` in Docker). |
 | `LEGISLATION_HTTP_PORT` | No | Port for the HTTP transport (default `8091`). |
+| `LEGISLATION_PUBLIC_URL` | HTTP | The address the HTTP server is reached at; the OAuth issuer. |
+| `LEGISLATION_AUTH_USERS` | HTTP | `user:hash` pairs, comma-separated (see above). |
+| `LEGISLATION_DAILY_CAP_PER_USER` | No | Upstream API requests per person per NZ day (default 4,000; 0 for no cap). |
+| `LEGISLATION_AUTH_REDIRECT_ALLOWLIST` | No | Redirect URIs clients may register (default: claude.ai's callbacks). |
+| `LEGISLATION_AUTH_STATE` | No | Login state file (default `data/auth-state.json`; `/data/auth-state.json` in Docker). |
+| `LEGISLATION_AUTH` | No | `off` runs the HTTP server without a login, on 127.0.0.1 only. For local testing. |
 
 ## How it works
 
@@ -281,7 +389,10 @@ and must not be exposed on a public interface.
 - **Document text** is fetched from the `formats[].url` links a version
   advertises. The XML format is parsed to find a section by its label inside
   the main body only, so schedule provisions with the same number never
-  collide, and to walk up to the enclosing Part and subpart.
+  collide, and to walk up to the enclosing Part and subpart. Anything inside
+  `<amend>` (quoted text in Acts, bills and regulations), `<instrument.amend>`
+  (amendment papers) or the end-matter `<skeletons>` of other Acts is not the
+  document's own and is ignored.
 - **Feeds** come from `https://www.legislation.govt.nz/api/rss/`, are parsed
   as Atom, and have their website URLs mapped back to identifiers.
 - **Quota headers** on every response are recorded per key and reported.
@@ -300,8 +411,10 @@ and must not be exposed on a public interface.
 
 ### Retries
 
-Transient upstream errors (502, 503, 504) are retried up to three times with
-capped backoff. A 429 is not retried: it means the daily quota is spent until
+Transient upstream errors (502, 503, 504) and timeouts are retried up to three
+times with capped backoff. Each attempt times out after 30 seconds, and a
+request gives up once 60 seconds have passed in all, so a dead upstream fails
+before the MCP client gives up on the tool call. A 429 is not retried: it means the daily quota is spent until
 midnight New Zealand time, and the error message says when that is. A 403
 means the burst limit (2,000 requests per five minutes per IP) was hit.
 
@@ -371,6 +484,25 @@ against the canonical documentation before relying on any point.
     only a PDF, so `list_sections` and text extraction are unavailable for
     them. `get_legislation_text` with `format: "pdf"` returns the link.
 
+11. **Quoted provisions are marked up like real ones.** A provision being
+    inserted into another Act is a full `<prov>` (with Parts, subparts and
+    schedules as needed) inside `<amend>`, so a search for every `<prov>` with
+    a given label finds quoted provisions too, and they can come before the
+    Act's own provision of the same number (section 40 of the Statutes
+    Amendment Act 2025, for example). Amendment papers wrap theirs in
+    `<instrument.amend>`. Verified October 2026.
+
+12. **Section numbers are reused.** The Crimes Act 1961 has two sections 253
+    and 254: the ones repealed in 2011 (`deletion-status="repealed"`) and new
+    ones inserted later. Bills carry a clause the committee struck out
+    (`amend.level1="struckout-cowh"`) next to the clause that replaced it, with
+    the same number.
+
+13. **The newest version's format URLs say `latest`, not its date**
+    (`.../en/latest.xml`); older versions' URLs carry their date. Acts and
+    regulations declare their as-at date on the root element
+    (`date.as.at`), which the server checks against the version requested.
+
 ## Development
 
 ```bash
@@ -379,12 +511,13 @@ npm run dev        # compile on change
 npm run typecheck  # type-check without emitting
 npm start          # run the stdio server
 npm run start:http # run the HTTP server
+npm test           # build, then run the test suite (node:test; offline, no key)
 ```
 
-There is no automated test suite yet. Changes have been verified with a stdio
-MCP client script exercising every tool against the live API, and with a
-script that extracts the OpenAPI spec from the docs page and checks every
-path, parameter, enum value, response field, and header against the source.
+The tests cover section and schedule lookup against trimmed excerpts of real
+PCO XML (`test/fixtures/`), version selection by date, upstream timeouts, and
+the HTTP server's login end to end. They make no requests to the legislation
+API.
 
 ## Limitations and future work
 
@@ -401,7 +534,9 @@ path, parameter, enum value, response field, and header against the source.
 ```
 src/
 ├─ index.ts             # stdio entry point (Claude Desktop / Claude Code)
-├─ http.ts              # streamable HTTP entry point (localhost service)
+├─ http.ts              # streamable HTTP entry point, with login (Express)
+├─ usage.ts             # per-request user context and per-person daily cap
+├─ log.ts               # one-line JSON event log on stderr
 ├─ server.ts            # transport-independent server factory; registers all tools
 ├─ client.ts            # HTTP client: auth, retries, rate-limit headers, feed fetching
 ├─ types.ts             # API response types (confirmed against live responses)
@@ -409,6 +544,14 @@ src/
 ├─ format.ts            # HTML → plain text
 ├─ xml.ts               # XML parsing and document-structure extraction
 ├─ feed.ts              # Atom feed parsing for the legacy /api/rss/ endpoints
+├─ auth/
+│  ├─ config.ts         # login settings from the environment
+│  ├─ provider.ts       # OAuth provider: login, codes, tokens, revocation
+│  ├─ store.ts          # state file: clients, logins, token hashes, usage
+│  ├─ passwords.ts      # scrypt password hashes
+│  ├─ lockout.ts        # wrong-password lockouts
+│  ├─ loginPage.ts      # the login page
+│  └─ cli.ts            # hash-password command
 └─ tools/
    ├─ search.ts         # search_legislation
    ├─ versions.ts       # list_versions
@@ -418,7 +561,7 @@ src/
    ├─ searchRss.ts      # search_legislation_rss
    ├─ versionsRss.ts    # list_versions_rss
    ├─ rateLimit.ts      # get_rate_limit_status
-   └─ resolve.ts        # work_id → newest version_id helper
+   └─ resolve.ts        # work_id (+ as_at) → version_id
 ```
 
 ## License
