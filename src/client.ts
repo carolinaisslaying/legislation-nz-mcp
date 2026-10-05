@@ -164,6 +164,8 @@ function messageForStatus(scope: RateLimitScope, status: number, body: string): 
 
 const MAX_RETRIES = 3;
 const MAX_BACKOFF_MS = 10_000;
+/** Per-attempt limit on a request, covering both the response and its body. */
+const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * Transient upstream failures worth a short retry. 429 is deliberately absent:
@@ -171,6 +173,11 @@ const MAX_BACKOFF_MS = 10_000;
  * a tool call cannot succeed.
  */
 const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+
+/** True for the error fetch throws when AbortSignal.timeout fires. */
+function isTimeout(err: unknown): boolean {
+  return err instanceof Error && err.name === "TimeoutError";
+}
 
 /** Sleep helper for backoff between retries. */
 function delay(ms: number): Promise<void> {
@@ -210,10 +217,24 @@ async function request(
   const record = opts.recordHeaders ?? true;
   let lastError: LegislationApiError | undefined;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const res = await fetch(url, init);
-    if (record) recordRateLimit(scope, res.headers);
+    let res: Response;
+    try {
+      res = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (record) recordRateLimit(scope, res.headers);
 
-    if (res.ok) return await res.text();
+      if (res.ok) return await res.text();
+    } catch (err) {
+      if (!isTimeout(err)) throw err;
+      // The URL is left out of the message: feed URLs carry the key.
+      lastError = new LegislationApiError(
+        `Request timed out: the upstream server did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+      );
+      if (attempt < MAX_RETRIES) {
+        await delay(backoffMs(null, attempt));
+        continue;
+      }
+      throw lastError;
+    }
 
     let body = await res.text().catch(() => "");
     if (opts.redact) body = body.split(opts.redact).join("<redacted>");
