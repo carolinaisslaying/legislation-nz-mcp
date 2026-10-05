@@ -165,7 +165,24 @@ function messageForStatus(scope: RateLimitScope, status: number, body: string): 
 const MAX_RETRIES = 3;
 const MAX_BACKOFF_MS = 10_000;
 /** Per-attempt limit on a request, covering both the response and its body. */
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = Number(process.env.LEGISLATION_REQUEST_TIMEOUT_MS) || 30_000;
+/**
+ * Limit on a request including its retries, so a dead upstream fails well
+ * before an MCP client gives up on the tool call.
+ */
+const REQUEST_DEADLINE_MS = Number(process.env.LEGISLATION_REQUEST_DEADLINE_MS) || 60_000;
+
+/**
+ * Called before every upstream attempt, with the quota it counts against.
+ * Throwing refuses the request (the HTTP entry uses this for per-person
+ * daily caps). Unset by default.
+ */
+type UpstreamRequestHook = (scope: RateLimitScope) => void;
+let upstreamRequestHook: UpstreamRequestHook | undefined;
+
+export function setUpstreamRequestHook(hook: UpstreamRequestHook | undefined): void {
+  upstreamRequestHook = hook;
+}
 
 /**
  * Transient upstream failures worth a short retry. 429 is deliberately absent:
@@ -215,11 +232,19 @@ async function request(
   opts: RequestOptions = {},
 ): Promise<string> {
   const record = opts.recordHeaders ?? true;
+  const deadline = Date.now() + REQUEST_DEADLINE_MS;
+  /** Wait before the next attempt, or give up if that would pass the deadline. */
+  const retryAfter = async (ms: number, error: LegislationApiError): Promise<void> => {
+    if (Date.now() + ms >= deadline) throw error;
+    await delay(ms);
+  };
   let lastError: LegislationApiError | undefined;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    upstreamRequestHook?.(scope);
+    const timeoutMs = Math.max(1, Math.min(REQUEST_TIMEOUT_MS, deadline - Date.now()));
     let res: Response;
     try {
-      res = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
       if (record) recordRateLimit(scope, res.headers);
 
       if (res.ok) return await res.text();
@@ -227,10 +252,11 @@ async function request(
       if (!isTimeout(err)) throw err;
       // The URL is left out of the message: feed URLs carry the key.
       lastError = new LegislationApiError(
-        `Request timed out: the upstream server did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+        `Request timed out: the upstream server did not respond (gave up after ${attempt + 1} ` +
+          `attempt${attempt ? "s" : ""}, ${Math.round((REQUEST_DEADLINE_MS - (deadline - Date.now())) / 1000)} seconds).`,
       );
       if (attempt < MAX_RETRIES) {
-        await delay(backoffMs(null, attempt));
+        await retryAfter(backoffMs(null, attempt), lastError);
         continue;
       }
       throw lastError;
@@ -241,7 +267,7 @@ async function request(
     lastError = new LegislationApiError(messageForStatus(scope, res.status, body), res.status);
 
     if (RETRYABLE_STATUSES.has(res.status) && attempt < MAX_RETRIES) {
-      await delay(backoffMs(res.headers.get("retry-after"), attempt));
+      await retryAfter(backoffMs(res.headers.get("retry-after"), attempt), lastError);
       continue;
     }
     throw lastError;
