@@ -10,23 +10,46 @@
  * the line to .env, separating users with commas, and restart the server.
  */
 
-import { createInterface } from "node:readline";
 import { hashPassword } from "./passwords.js";
 import { isValidUsername } from "./config.js";
 
 const MIN_LENGTH = 12;
 
+/**
+ * Read a line from the terminal without echoing it. Uses raw mode directly:
+ * readline clears the line when it starts, which erased the prompt.
+ */
 function askHidden(prompt: string): Promise<string> {
   return new Promise((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
-    // Echo nothing while the password is typed.
-    (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = () => {};
-    process.stderr.write(prompt);
-    rl.question("", (answer) => {
-      rl.close();
+    const stdin = process.stdin;
+    let value = "";
+    const finish = (): void => {
+      stdin.off("data", onData);
+      stdin.setRawMode(false);
+      stdin.pause();
       process.stderr.write("\n");
-      resolve(answer);
-    });
+    };
+    const onData = (chunk: string): void => {
+      for (const ch of chunk) {
+        if (ch === "\r" || ch === "\n") {
+          finish();
+          resolve(value);
+          return;
+        }
+        if (ch === "\u0003") {
+          // Ctrl+C
+          finish();
+          process.exit(130);
+        }
+        if (ch === "\u007f" || ch === "\b") value = value.slice(0, -1);
+        else if (ch >= " ") value += ch;
+      }
+    };
+    process.stderr.write(prompt);
+    stdin.setEncoding("utf8");
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on("data", onData);
   });
 }
 
