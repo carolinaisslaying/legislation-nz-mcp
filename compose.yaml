@@ -1,15 +1,16 @@
-# legislation-nz-mcp, served over streamable HTTP at /mcp.
+# legislation-nz-mcp, served over streamable HTTP at /mcp with its own login.
 #
-# Keys are read from .env next to this file (never committed). Each service
-# maps its own key onto LEGISLATION_NZ_API_KEY inside its container.
+# Settings are read from .env next to this file (never committed). Each
+# service maps its own values onto the variable names the server reads.
 #
-# The server has no authentication of its own. Caddy on the host proxies to
-# the published port. Docker publishes on every host interface by default and
-# its rules bypass ufw, so keep this port closed at your router, or prefix it
-# with 127.0.0.1: if Caddy can reach the host's loopback.
+# Caddy on the host proxies to the published port. Docker publishes on every
+# host interface by default and its rules bypass ufw, so keep this port closed
+# at your router. Every request to /mcp needs a login, but there is no reason
+# to expose the port beyond Caddy.
 #
-# To add a second instance with a different key, copy the whole service block,
-# then change the service name, the key variable and the host port.
+# To add a second instance with a different key, copy the whole service block
+# and its volume, then change the service name, the variable names, the host
+# port and the volume.
 
 services:
     legislation-mcp:
@@ -19,8 +20,32 @@ services:
             LEGISLATION_NZ_API_KEY: ${LEGISLATION_NZ_API_KEY:?set LEGISLATION_NZ_API_KEY in .env}
             # Optional RSS-only key for the two legacy feed tools.
             LEGISLATION_NZ_RSS_API_KEY: ${LEGISLATION_NZ_RSS_API_KEY:-}
+            LEGISLATION_PUBLIC_URL: ${LEGISLATION_PUBLIC_URL:?set LEGISLATION_PUBLIC_URL in .env}
+            LEGISLATION_AUTH_USERS: ${LEGISLATION_AUTH_USERS:?set LEGISLATION_AUTH_USERS in .env}
+            LEGISLATION_DAILY_CAP_PER_USER: ${LEGISLATION_DAILY_CAP_PER_USER:-4000}
+            LEGISLATION_AUTH_REDIRECT_ALLOWLIST: ${LEGISLATION_AUTH_REDIRECT_ALLOWLIST:-}
         ports:
             - "48091:8091"
+        volumes:
+            - legislation-mcp-data:/data
+        read_only: true
+        tmpfs:
+            - /tmp
+        cap_drop:
+            - ALL
+        security_opt:
+            - no-new-privileges:true
+        healthcheck:
+            test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8091/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+            interval: 30s
+            timeout: 5s
+            start_period: 10s
+            retries: 3
+        logging:
+            driver: json-file
+            options:
+                max-size: "10m"
+                max-file: "5"
 
     # legislation-mcp-2:
     #     build: .
@@ -28,5 +53,16 @@ services:
     #     environment:
     #         LEGISLATION_NZ_API_KEY: ${LEGISLATION_NZ_API_KEY_2:?set LEGISLATION_NZ_API_KEY_2 in .env}
     #         LEGISLATION_NZ_RSS_API_KEY: ${LEGISLATION_NZ_RSS_API_KEY_2:-}
+    #         LEGISLATION_PUBLIC_URL: ${LEGISLATION_PUBLIC_URL_2:?set LEGISLATION_PUBLIC_URL_2 in .env}
+    #         LEGISLATION_AUTH_USERS: ${LEGISLATION_AUTH_USERS_2:?set LEGISLATION_AUTH_USERS_2 in .env}
+    #         LEGISLATION_DAILY_CAP_PER_USER: ${LEGISLATION_DAILY_CAP_PER_USER_2:-4000}
+    #         LEGISLATION_AUTH_REDIRECT_ALLOWLIST: ${LEGISLATION_AUTH_REDIRECT_ALLOWLIST_2:-}
     #     ports:
     #         - "48092:8091"
+    #     volumes:
+    #         - legislation-mcp-2-data:/data
+    #     (and the same read_only, tmpfs, cap_drop, security_opt, healthcheck and logging as above)
+
+volumes:
+    legislation-mcp-data:
+    # legislation-mcp-2-data:
