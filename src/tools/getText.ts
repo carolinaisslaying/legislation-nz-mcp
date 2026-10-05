@@ -4,7 +4,7 @@ import { htmlToText, xmlToText, truncate } from "../format.js";
 import { parseLegislation, findSection, findSchedule, documentKind, type ExcludeOption } from "../xml.js";
 import type { Version } from "../types.js";
 import { dateFromVersionId, versionUrl } from "../util.js";
-import { newestVersionId } from "./resolve.js";
+import { resolveVersion } from "./resolve.js";
 
 const DEFAULT_MAX_CHARS = 100_000;
 
@@ -16,7 +16,15 @@ export const getTextInputSchema = {
   work_id: z
     .string()
     .optional()
-    .describe("A work_id; the newest version will be resolved automatically. Provide either version_id or work_id."),
+    .describe("A work_id; resolved to the newest version dated on or before today, or on or before as_at. Provide either version_id or work_id."),
+  as_at: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Use the form YYYY-MM-DD.")
+    .optional()
+    .describe(
+      "With work_id: read the version in force on this date (YYYY-MM-DD), i.e. the newest version dated on or before it. " +
+      "Without as_at, work_id resolves to the newest version dated on or before today (NZ time). Cannot be combined with version_id.",
+    ),
   section: z
     .string()
     .optional()
@@ -97,13 +105,7 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
 
   const exclude = (args.exclude ?? []) as ExcludeOption[];
 
-  let versionId = args.version_id;
-  if (!versionId) {
-    if (!args.work_id) {
-      throw new LegislationApiError("Provide either version_id or work_id.");
-    }
-    versionId = await newestVersionId(args.work_id);
-  }
+  const { version_id: versionId, ...selection } = await resolveVersion(args);
 
   const version = await getJson<Version>(
     `/v0/versions/${encodeURIComponent(versionId)}/`,
@@ -117,6 +119,7 @@ export async function getLegislationText(args: z.infer<typeof schema>) {
     title: version.title,
     version_date: dateFromVersionId(versionId),
     url: versionUrl(versionId),
+    ...selection,
   };
 
   // --- PDF URL mode ---
