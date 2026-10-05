@@ -30,12 +30,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 function toolResult<T>(
   handler: (args: T) => Promise<unknown>,
-  opts: { attachRateLimit?: boolean } = {},
+  opts: { attachRateLimit?: boolean; onDone?: (outcome: ToolCallOutcome<T>) => void } = {},
 ) {
   const attach = opts.attachRateLimit ?? true;
   return async (args: T) => {
+    const started = Date.now();
     try {
       const data = await handler(args);
+      opts.onDone?.({ args, ok: true, ms: Date.now() - started });
       const payload =
         attach && isPlainObject(data) ? { ...data, rate_limit: lastRateLimit() } : data;
       return {
@@ -48,6 +50,7 @@ function toolResult<T>(
           : err instanceof Error
             ? err.message
             : String(err);
+      opts.onDone?.({ args, ok: false, error: message, ms: Date.now() - started });
       return {
         content: [{ type: "text" as const, text: `Error: ${message}` }],
         isError: true,
@@ -56,15 +59,36 @@ function toolResult<T>(
   };
 }
 
+export interface ToolCallOutcome<T = unknown> {
+  args: T;
+  ok: boolean;
+  error?: string;
+  ms: number;
+}
+
+export interface ToolCallRecord extends ToolCallOutcome {
+  tool: string;
+}
+
+export interface ServerHooks {
+  /** Called after every tool call, e.g. for a usage log. */
+  onToolCall?: (call: ToolCallRecord) => void;
+}
+
 /** Every tool only reads public legislation data from the PCO's API. */
 const READ_ONLY_TOOL = { readOnlyHint: true, openWorldHint: true };
 
 /** Construct a new McpServer instance with every tool registered. */
-export function createServer(): McpServer {
+export function createServer(hooks: ServerHooks = {}): McpServer {
   const server = new McpServer({
     name: "legislation-nz-mcp",
     version: "0.1.0",
   });
+  const wrap = <T>(tool: string, handler: (args: T) => Promise<unknown>, opts: { attachRateLimit?: boolean } = {}) =>
+    toolResult(handler, {
+      ...opts,
+      onDone: hooks.onToolCall && ((outcome) => hooks.onToolCall!({ tool, ...outcome })),
+    });
 
   server.registerTool(
     "search_legislation",
@@ -78,7 +102,7 @@ export function createServer(): McpServer {
       inputSchema: searchInputSchema,
       annotations: READ_ONLY_TOOL,
     },
-    toolResult(searchLegislation),
+    wrap("search_legislation", searchLegislation),
   );
 
   server.registerTool(
@@ -92,7 +116,7 @@ export function createServer(): McpServer {
       inputSchema: versionsInputSchema,
       annotations: READ_ONLY_TOOL,
     },
-    toolResult(listVersions),
+    wrap("list_versions", listVersions),
   );
 
   server.registerTool(
@@ -103,7 +127,7 @@ export function createServer(): McpServer {
       inputSchema: versionDetailsInputSchema,
       annotations: READ_ONLY_TOOL,
     },
-    toolResult(getVersionDetails),
+    wrap("get_version_details", getVersionDetails),
   );
 
   server.registerTool(
@@ -121,7 +145,7 @@ export function createServer(): McpServer {
       inputSchema: getTextInputSchema,
       annotations: READ_ONLY_TOOL,
     },
-    toolResult(getLegislationText),
+    wrap("get_legislation_text", getLegislationText),
   );
 
   server.registerTool(
@@ -134,7 +158,7 @@ export function createServer(): McpServer {
       inputSchema: listSectionsInputSchema,
       annotations: READ_ONLY_TOOL,
     },
-    toolResult(listSections),
+    wrap("list_sections", listSections),
   );
 
   server.registerTool(
@@ -147,7 +171,7 @@ export function createServer(): McpServer {
       inputSchema: searchRssInputSchema,
       annotations: READ_ONLY_TOOL,
     },
-    toolResult(searchLegislationRss),
+    wrap("search_legislation_rss", searchLegislationRss),
   );
 
   server.registerTool(
@@ -160,7 +184,7 @@ export function createServer(): McpServer {
       inputSchema: versionsRssInputSchema,
       annotations: READ_ONLY_TOOL,
     },
-    toolResult(listVersionsRss),
+    wrap("list_versions_rss", listVersionsRss),
   );
 
   server.registerTool(
@@ -173,7 +197,7 @@ export function createServer(): McpServer {
       inputSchema: rateLimitInputSchema,
       annotations: READ_ONLY_TOOL,
     },
-    toolResult(getRateLimitStatusTool, { attachRateLimit: false }),
+    wrap("get_rate_limit_status", getRateLimitStatusTool, { attachRateLimit: false }),
   );
 
   return server;
