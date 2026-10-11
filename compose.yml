@@ -17,6 +17,8 @@
 # names and the volume, and add a second public hostname to the same tunnel
 # pointing at the new service name. One cloudflared serves both.
 
+name: "legislation-nz-mcp"
+
 services:
     legislation-mcp:
         build: .
@@ -34,7 +36,7 @@ services:
         networks:
             - tunnel
         volumes:
-            - legislation-mcp-data:/data
+            - ./data:/data
         read_only: true
         tmpfs:
             - /tmp
@@ -99,6 +101,3 @@ services:
 networks:
     tunnel:
 
-volumes:
-    legislation-mcp-data:
-    # legislation-mcp-2-data:
