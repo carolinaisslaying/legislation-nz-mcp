@@ -59,7 +59,7 @@ services:
     cloudflared:
         # Pinned; check https://hub.docker.com/r/cloudflare/cloudflared/tags
         # for newer releases. On an ARM server, use the -arm64 tag.
-        image: cloudflare/cloudflared:2026.9.3
+        image: cloudflare/cloudflared:2026.10.2
         restart: unless-stopped
         command: ["tunnel", "--no-autoupdate", "run"]
         environment:
